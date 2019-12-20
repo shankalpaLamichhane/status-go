@@ -271,7 +271,7 @@ func (b *GethStatusBackend) startNodeWithAccount(acc multiaccounts.Account, pass
 	if err != nil {
 		return err
 	}
-	watchAddrs, err := accountsDB.GetAddresses()
+	watchAddrs, err := accountsDB.GetWalletAddresses()
 	if err != nil {
 		return err
 	}
@@ -903,24 +903,22 @@ func (b *GethStatusBackend) startWallet() error {
 		return err
 	}
 
-	allAddresses := make([]common.Address, len(watchAddresses)+1)
-	allAddresses[0] = common.Address(mainAccountAddress)
-	for i, addr := range watchAddresses {
-		allAddresses[1+i] = common.Address(addr)
-	}
-
 	uniqAddressesMap := map[common.Address]struct{}{}
-	uniqAddresses := []common.Address{}
-	for _, address := range allAddresses {
+	allAddresses := []common.Address{}
+	mainAddress := common.Address(mainAccountAddress)
+	uniqAddressesMap[mainAddress] = struct{}{}
+	allAddresses = append(allAddresses, mainAddress)
+	for _, addr := range watchAddresses {
+		address := common.Address(addr)
 		if _, ok := uniqAddressesMap[address]; !ok {
 			uniqAddressesMap[address] = struct{}{}
-			uniqAddresses = append(uniqAddresses, address)
+			allAddresses = append(allAddresses, address)
 		}
 	}
 
 	return wallet.StartReactor(
 		b.statusNode.RPCClient().Ethclient(),
-		uniqAddresses,
+		allAddresses,
 		new(big.Int).SetUint64(b.statusNode.Config().NetworkID))
 }
 

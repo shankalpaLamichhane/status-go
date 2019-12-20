@@ -60,6 +60,139 @@ func (api *API) GetTransfersByAddress(ctx context.Context, address common.Addres
 	return castToTransferViews(rst), nil
 }
 
+type StatsView struct {
+	BlocksStats    map[int64]int64 `json:"blocksStats"`
+	TransfersCount int64           `json:"transfersCount"`
+}
+
+// GetTransfersFromBlock
+func (a *API) GetTransfersFromBlock(ctx context.Context, address common.Address, block *hexutil.Big) ([]TransferView, error) {
+	log.Debug("call to get transfers by block", "address", address, "block", block)
+	if a.s.db == nil {
+		return nil, ErrServiceNotInitialized
+	}
+
+	blocksByAddress := make(map[common.Address][]*big.Int)
+	blocksByAddress[address] = []*big.Int{block.ToInt()}
+
+	txCommand := &loadTransfersCommand{
+		accounts:        []common.Address{address},
+		db:              a.s.db,
+		chain:           a.s.reactor.chain,
+		client:          a.s.client,
+		blocksByAddress: blocksByAddress,
+	}
+
+	err := txCommand.Command()(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	rst, err := a.s.db.GetTransfersByAddress(address, block.ToInt(), block.ToInt())
+	if err != nil {
+		return nil, err
+	}
+
+	return castToTransferViews(rst), nil
+}
+
+// GetTransfersByAddressPage returns transfers for a single address between two blocks.
+func (a *API) GetTransfersByAddressPage(ctx context.Context, address common.Address, beforeBlock, pageSize *hexutil.Big) ([]TransferView, error) {
+	log.Info("call to get transfers for an address", "address", address, "block", beforeBlock, "pageSize", pageSize)
+	if a.s.db == nil {
+		return nil, ErrServiceNotInitialized
+	}
+	rst, err := a.s.db.GetTransfersByAddressAndPage(address, beforeBlock.ToInt(), pageSize.ToInt().Int64())
+	if err != nil {
+		return nil, err
+	}
+
+	transfersCount := big.NewInt(int64(len(rst)))
+	if pageSize.ToInt().Cmp(transfersCount) == 1 {
+		block, err := a.s.db.GetFirstKnownBlock(address)
+		if err != nil {
+			return nil, err
+		}
+
+		if block == nil {
+			return castToTransferViews(rst), nil
+		}
+
+		from, err := findFirstRange(ctx, address, block, a.s.client)
+		fromByAddress := map[common.Address]*big.Int{address: from}
+		toByAddress := map[common.Address]*big.Int{address: block}
+
+		balanceCache := newBalanceCache()
+		blocksCommand := &findAndCheckBlockRangeCommand{
+			accounts:      []common.Address{address},
+			db:            a.s.db,
+			chain:         a.s.reactor.chain,
+			client:        a.s.client,
+			balanceCache:  balanceCache,
+			feed:          a.s.feed,
+			fromByAddress: fromByAddress,
+			toByAddress:   toByAddress,
+		}
+
+		if err = blocksCommand.Command()(ctx); err != nil {
+			return nil, err
+		}
+
+		blocks, err := a.s.db.GetBlocksByAddress(address, 40)
+		if err != nil {
+			return nil, err
+		}
+
+		log.Info("checking blocks again", "blocks", len(blocks))
+		if len(blocks) > 0 {
+			txCommand := &loadTransfersCommand{
+				accounts: []common.Address{address},
+				db:       a.s.db,
+				chain:    a.s.reactor.chain,
+				client:   a.s.client,
+			}
+
+			err = txCommand.Command()(ctx)
+			if err != nil {
+				return nil, err
+			}
+			rst, err = a.s.db.GetTransfersByAddressAndPage(address, beforeBlock.ToInt(), pageSize.ToInt().Int64())
+			if err != nil {
+				return nil, err
+			}
+		}
+	}
+
+	return castToTransferViews(rst), nil
+}
+
+type BlockView struct {
+	Block *big.Int `json:"number"`
+}
+
+func castToBlockViews(blocks []*big.Int) []BlockView {
+	views := make([]BlockView, len(blocks))
+	for i, block := range blocks {
+		view := BlockView{}
+		view.Block = block
+		views[i] = view
+	}
+	return views
+}
+
+// GetBlocksByAddress returns transfers for a single address between two blocks.
+func (api *API) GetBlocksByAddress(ctx context.Context, address common.Address) ([]BlockView, error) {
+	if api.s.db == nil {
+		return nil, ErrServiceNotInitialized
+	}
+	rst, err := api.s.db.GetBlocksByAddress(address, 10)
+	if err != nil {
+		return nil, err
+	}
+	log.Info("result blocks from database for address", "address", address, "len", len(rst))
+	return castToBlockViews(rst), nil
+}
+
 // GetTokensBalances return mapping of token balances for every account.
 func (api *API) GetTokensBalances(ctx context.Context, accounts, tokens []common.Address) (map[common.Address]map[common.Address]*big.Int, error) {
 	if api.s.client == nil {
