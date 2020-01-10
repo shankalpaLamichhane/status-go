@@ -27,6 +27,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/require"
+
 	"github.com/stretchr/testify/suite"
 
 	"github.com/ethereum/go-ethereum/common"
@@ -59,16 +61,16 @@ func TestMailserverSuite(t *testing.T) {
 
 type MailserverSuite struct {
 	suite.Suite
-	server  *WhisperMailServer
+	server  *WMailServer
 	shh     *whisper.Whisper
 	config  *params.WhisperConfig
 	dataDir string
 }
 
 func (s *MailserverSuite) SetupTest() {
-	s.server = &WhisperMailServer{}
+	s.server = &WMailServer{}
 	s.shh = whisper.New(&whisper.DefaultConfig)
-	s.shh.RegisterMailServer(s.server)
+	s.shh.RegisterServer(s.server)
 
 	tmpDir, err := ioutil.TempDir("", "mailserver-test")
 	s.Require().NoError(err)
@@ -150,9 +152,9 @@ func (s *MailserverSuite) TestInit() {
 
 	for _, tc := range testCases {
 		s.T().Run(tc.info, func(*testing.T) {
-			mailServer := &WhisperMailServer{}
+			mailServer := &WMailServer{}
 			shh := whisper.New(&whisper.DefaultConfig)
-			shh.RegisterMailServer(mailServer)
+			shh.RegisterServer(mailServer)
 
 			err := mailServer.Init(shh, &tc.config)
 			s.Equal(tc.expectedError, err)
@@ -160,13 +162,13 @@ func (s *MailserverSuite) TestInit() {
 
 			// db should be open only if there was no error
 			if tc.expectedError == nil {
-				s.NotNil(mailServer.ms.db)
+				s.NotNil(mailServer.db)
 			} else {
-				s.Nil(mailServer.ms)
+				s.Nil(mailServer.db)
 			}
 
 			if tc.config.MailServerRateLimit > 0 {
-				s.NotNil(mailServer.ms.rateLimiter)
+				s.NotNil(mailServer.rateLimiter)
 			}
 		})
 	}
@@ -226,7 +228,7 @@ func (s *MailserverSuite) TestOpenEnvelopeWithSymKey() {
 }
 
 func (s *MailserverSuite) TestOpenEnvelopeWithAsymKey() {
-	// Setup the server with an asymmetric key
+	// Setup the server with an asymetric key
 	config := *s.config
 	config.MailServerPassword = "" // clear password field
 	s.NoError(s.server.Init(s.shh, &config))
@@ -237,7 +239,7 @@ func (s *MailserverSuite) TestOpenEnvelopeWithAsymKey() {
 	env, err := generateEnvelopeWithKeys(time.Now(), nil, &pubKey)
 	s.Require().NoError(err)
 
-	// Test openEnvelope with a valid asymmetric key
+	// Test openEnvelope with a valid asymetric key
 	d := s.server.openEnvelope(env)
 	s.NotNil(d)
 	s.Equal(testPayload, d.Payload)
@@ -259,24 +261,22 @@ func (s *MailserverSuite) TestArchive() {
 
 	s.server.Archive(env)
 	key := NewDBKey(env.Expiry-env.TTL, types.TopicType(env.Topic), types.Hash(env.Hash()))
-	archivedEnvelope, err := s.server.ms.db.GetEnvelope(key)
+	archivedEnvelope, err := s.server.db.GetEnvelope(key)
 	s.NoError(err)
 
 	s.Equal(rawEnvelope, archivedEnvelope)
 }
 
 func (s *MailserverSuite) TestManageLimits() {
-	err := s.server.Init(s.shh, s.config)
-	s.NoError(err)
-	s.server.ms.rateLimiter = newRateLimiter(time.Duration(5) * time.Millisecond)
-	s.False(s.server.ms.exceedsPeerRequests(types.BytesToHash([]byte("peerID"))))
-	s.Equal(1, len(s.server.ms.rateLimiter.db))
-	firstSaved := s.server.ms.rateLimiter.db["peerID"]
+	s.server.rateLimiter = newRateLimiter(time.Duration(5) * time.Millisecond)
+	s.False(s.server.exceedsPeerRequests([]byte("peerID")))
+	s.Equal(1, len(s.server.rateLimiter.db))
+	firstSaved := s.server.rateLimiter.db["peerID"]
 
 	// second call when limit is not accomplished does not store a new limit
-	s.True(s.server.ms.exceedsPeerRequests(types.BytesToHash([]byte("peerID"))))
-	s.Equal(1, len(s.server.ms.rateLimiter.db))
-	s.Equal(firstSaved, s.server.ms.rateLimiter.db["peerID"])
+	s.True(s.server.exceedsPeerRequests([]byte("peerID")))
+	s.Equal(1, len(s.server.rateLimiter.db))
+	s.Equal(firstSaved, s.server.rateLimiter.db["peerID"])
 }
 
 func (s *MailserverSuite) TestDBKey() {
@@ -317,28 +317,31 @@ func (s *MailserverSuite) TestRequestPaginationLimit() {
 	reqLimit := uint32(6)
 	peerID, request, err := s.prepareRequest(sentEnvelopes, reqLimit)
 	s.NoError(err)
-	payload, err := s.server.decompositeRequest(peerID, request)
+	lower, upper, bloom, limit, cursor, err := s.server.validateRequest(peerID, request)
 	s.NoError(err)
-	s.Nil(payload.Cursor)
-	s.Equal(reqLimit, payload.Limit)
+	s.Nil(cursor)
+	s.Equal(reqLimit, limit)
 
-	receivedHashes, cursor, _ := processRequestAndCollectHashes(s.server, payload)
+	receivedHashes, cursor, _ = processRequestAndCollectHashes(
+		s.server, lower, upper, cursor, bloom, int(limit),
+	)
 
 	// 10 envelopes sent
 	s.Equal(count, uint32(len(sentEnvelopes)))
 	// 6 envelopes received
-	s.Len(receivedHashes, int(payload.Limit))
+	s.Len(receivedHashes, int(limit))
 	// the 6 envelopes received should be in forward order
-	s.Equal(sentHashes[:payload.Limit], receivedHashes)
+	s.Equal(sentHashes[:limit], receivedHashes)
 	// cursor should be the key of the last envelope of the last page
-	s.Equal(archiveKeys[payload.Limit-1], fmt.Sprintf("%x", cursor))
+	s.Equal(archiveKeys[limit-1], fmt.Sprintf("%x", cursor))
 
 	// second page
-	payload.Cursor = cursor
-	receivedHashes, cursor, _ = processRequestAndCollectHashes(s.server, payload)
+	receivedHashes, cursor, _ = processRequestAndCollectHashes(
+		s.server, lower, upper, cursor, bloom, int(limit),
+	)
 
 	// 4 envelopes received
-	s.Equal(int(count-payload.Limit), len(receivedHashes))
+	s.Equal(int(count-limit), len(receivedHashes))
 	// cursor is nil because there are no other pages
 	s.Nil(cursor)
 }
@@ -415,17 +418,17 @@ func (s *MailserverSuite) TestMailServer() {
 		s.T().Run(tc.info, func(*testing.T) {
 			request := s.createRequest(tc.params)
 			src := crypto.FromECDSAPub(&tc.params.key.PublicKey)
-			payload, err := s.server.decompositeRequest(src, request)
+			lower, upper, bloom, limit, _, err := s.server.validateRequest(src, request)
 			s.Equal(tc.isOK, err == nil)
 			if err == nil {
-				s.Equal(tc.params.low, payload.Lower)
-				s.Equal(tc.params.upp, payload.Upper)
-				s.Equal(tc.params.limit, payload.Limit)
-				s.Equal(types.TopicToBloom(tc.params.topic), payload.Bloom)
-				s.Equal(tc.expect, s.messageExists(env, tc.params.low, tc.params.upp, payload.Bloom, tc.params.limit))
+				s.Equal(tc.params.low, lower)
+				s.Equal(tc.params.upp, upper)
+				s.Equal(tc.params.limit, limit)
+				s.Equal(types.TopicToBloom(tc.params.topic), bloom)
+				s.Equal(tc.expect, s.messageExists(env, tc.params.low, tc.params.upp, bloom, tc.params.limit))
 
 				src[0]++
-				_, err = s.server.decompositeRequest(src, request)
+				_, _, _, _, _, err = s.server.validateRequest(src, request)
 				s.True(err == nil)
 			}
 		})
@@ -506,7 +509,7 @@ func (s *MailserverSuite) TestProcessRequestDeadlockHandling() {
 	// Prepare a request.
 	peerID, request, err := s.prepareRequest(archievedEnvelopes, 5)
 	s.NoError(err)
-	payload, err := s.server.decompositeRequest(peerID, request)
+	lower, upper, bloom, limit, cursor, err := s.server.validateRequest(peerID, request)
 	s.NoError(err)
 
 	testCases := []struct {
@@ -530,7 +533,7 @@ func (s *MailserverSuite) TestProcessRequestDeadlockHandling() {
 				processFinished := make(chan struct{})
 
 				go func() {
-					s.server.ms.processRequestInBundles(iter, payload.Bloom, int(payload.Limit), timeout, "req-01", bundles, done)
+					s.server.processRequestInBundles(iter, bloom, int(limit), timeout, "req-01", bundles, done)
 					close(processFinished)
 				}()
 				go close(done)
@@ -554,7 +557,7 @@ func (s *MailserverSuite) TestProcessRequestDeadlockHandling() {
 				processFinished := make(chan struct{})
 
 				go func() {
-					s.server.ms.processRequestInBundles(iter, payload.Bloom, int(payload.Limit), time.Second, "req-01", bundles, done)
+					s.server.processRequestInBundles(iter, bloom, int(limit), time.Second, "req-01", bundles, done)
 					close(processFinished)
 				}()
 
@@ -569,7 +572,7 @@ func (s *MailserverSuite) TestProcessRequestDeadlockHandling() {
 
 	for _, tc := range testCases {
 		s.T().Run(tc.Name, func(t *testing.T) {
-			iter, err := s.server.ms.createIterator(payload)
+			iter, err := s.server.createIterator(lower, upper, cursor, nil, 0)
 			s.Require().NoError(err)
 
 			defer iter.Release()
@@ -584,12 +587,9 @@ func (s *MailserverSuite) TestProcessRequestDeadlockHandling() {
 }
 
 func (s *MailserverSuite) messageExists(envelope *whisper.Envelope, low, upp uint32, bloom []byte, limit uint32) bool {
-	receivedHashes, _, _ := processRequestAndCollectHashes(s.server, MessagesRequestPayload{
-		Lower: low,
-		Upper: upp,
-		Bloom: bloom,
-		Limit: limit,
-	})
+	receivedHashes, _, _ := processRequestAndCollectHashes(
+		s.server, low, upp, nil, bloom, int(limit),
+	)
 	for _, hash := range receivedHashes {
 		if hash == envelope.Hash() {
 			return true
@@ -634,11 +634,11 @@ func (s *MailserverSuite) TestBloomFromReceivedMessage() {
 	}
 }
 
-func (s *MailserverSuite) setupServer(server *WhisperMailServer) {
+func (s *MailserverSuite) setupServer(server *WMailServer) {
 	const password = "password_for_this_test"
 
 	s.shh = whisper.New(&whisper.DefaultConfig)
-	s.shh.RegisterMailServer(server)
+	s.shh.RegisterServer(server)
 
 	err := server.Init(s.shh, &params.WhisperConfig{
 		DataDir:            s.dataDir,
@@ -770,8 +770,10 @@ func generateEnvelope(sentTime time.Time) (*whisper.Envelope, error) {
 	return generateEnvelopeWithKeys(sentTime, h[:], nil)
 }
 
-func processRequestAndCollectHashes(server *WhisperMailServer, payload MessagesRequestPayload) ([]common.Hash, []byte, types.Hash) {
-	iter, _ := server.ms.createIterator(payload)
+func processRequestAndCollectHashes(
+	server *WMailServer, lower, upper uint32, cursor []byte, bloom []byte, limit int,
+) ([]common.Hash, []byte, types.Hash) {
+	iter, _ := server.createIterator(lower, upper, cursor, nil, 0)
 	defer iter.Release()
 	bundles := make(chan []rlp.RawValue, 10)
 	done := make(chan struct{})
@@ -780,19 +782,34 @@ func processRequestAndCollectHashes(server *WhisperMailServer, payload MessagesR
 	go func() {
 		for bundle := range bundles {
 			for _, rawEnvelope := range bundle {
+
 				var env *whisper.Envelope
 				if err := rlp.DecodeBytes(rawEnvelope, &env); err != nil {
 					panic(err)
 				}
+
 				hashes = append(hashes, env.Hash())
 			}
 		}
 		close(done)
 	}()
 
-	cursor, lastHash := server.ms.processRequestInBundles(iter, payload.Bloom, int(payload.Limit), time.Minute, "req-01", bundles, done)
+	cursor, lastHash := server.processRequestInBundles(iter, bloom, limit, time.Minute, "req-01", bundles, done)
 
 	<-done
 
 	return hashes, cursor, lastHash
+}
+
+// mockPeerWithID is a struct that conforms to peerWithID interface.
+type mockPeerWithID struct {
+	id []byte
+}
+
+func (p mockPeerWithID) ID() []byte { return p.id }
+
+func TestPeerIDString(t *testing.T) {
+	a := []byte{0x01, 0x02, 0x03}
+	require.Equal(t, "010203", peerIDString(&mockPeerWithID{a}))
+	require.Equal(t, "010203", peerIDBytesString(a))
 }

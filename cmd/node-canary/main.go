@@ -271,7 +271,6 @@ func makeNodeConfig() (*params.NodeConfig, error) {
 		nodeConfig.LogFile = *logFile
 	}
 
-	nodeConfig.EnableNTPSync = true
 	nodeConfig.NoDiscovery = true
 	nodeConfig.ListenAddr = ""
 	if *staticEnodeAddr != "" {
@@ -292,6 +291,7 @@ func whisperConfig(nodeConfig *params.NodeConfig) (*params.NodeConfig, error) {
 	whisperConfig.LightClient = true
 	whisperConfig.MinimumPoW = *minPow
 	whisperConfig.TTL = *ttl
+	whisperConfig.EnableNTPSync = true
 
 	return nodeConfig, nil
 }

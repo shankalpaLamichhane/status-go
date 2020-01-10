@@ -90,7 +90,6 @@ func TestStatusNodeWithDataDir(t *testing.T) {
 
 func TestStatusNodeServiceGetters(t *testing.T) {
 	config := params.NodeConfig{
-		EnableNTPSync: true,
 		WhisperConfig: params.WhisperConfig{
 			Enabled: true,
 		},

@@ -488,10 +488,10 @@ func (s *WhisperMailboxSuite) TestSyncBetweenTwoMailServers() {
 	publicChatSymKey, err := mailboxWhisperService.GetSymKey(symKeyID)
 	s.Require().NoError(err)
 
-	var mailServer mailserver.WhisperMailServer
+	var mailServer mailserver.WMailServer
 	err = mailServer.Init(mailboxWhisperService, &mailbox.StatusNode().Config().WhisperConfig)
 	s.Require().NoError(err)
-	mailboxWhisperService.RegisterMailServer(&mailServer)
+	mailboxWhisperService.RegisterServer(&mailServer)
 
 	// envelopes to archive
 	envelopesCount := 5
@@ -548,7 +548,7 @@ func (s *WhisperMailboxSuite) TestSyncBetweenTwoMailServers() {
 		"shhext_syncMessages",
 		shhext.SyncMessagesRequest{
 			MailServerPeer: mailbox.StatusNode().Server().Self().URLv4(),
-			From:           uint32(time.Now().Add(-time.Hour).Unix()),
+			From:           0,
 			To:             uint32(time.Now().Unix()),
 			Limit:          1,
 		},
@@ -567,7 +567,7 @@ func (s *WhisperMailboxSuite) TestSyncBetweenTwoMailServers() {
 		"shhext_syncMessages",
 		shhext.SyncMessagesRequest{
 			MailServerPeer: mailbox.StatusNode().Server().Self().URLv4(),
-			From:           uint32(time.Now().Add(-time.Hour).Unix()),
+			From:           0,
 			To:             uint32(time.Now().Unix()),
 			Limit:          10,
 			Cursor:         syncMessagesResponse.Cursor,

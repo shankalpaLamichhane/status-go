@@ -566,7 +566,7 @@ type RequestWithTrackingHistorySuite struct {
 	localContext    Context
 	mailSymKey      string
 
-	remoteMailserver *mailserver.WhisperMailServer
+	remoteMailserver *mailserver.WMailServer
 	remoteNode       *enode.Node
 	remoteWhisper    *whisper.Whisper
 }
@@ -602,8 +602,8 @@ func (s *RequestWithTrackingHistorySuite) SetupTest() {
 	remoteSHH := whisper.New(conf)
 	s.remoteWhisper = remoteSHH
 	s.Require().NoError(remoteSHH.Start(nil))
-	s.remoteMailserver = &mailserver.WhisperMailServer{}
-	remoteSHH.RegisterMailServer(s.remoteMailserver)
+	s.remoteMailserver = &mailserver.WMailServer{}
+	remoteSHH.RegisterServer(s.remoteMailserver)
 	password := "test"
 	tmpdir, err = ioutil.TempDir("", "tracking-history-tests-")
 	s.Require().NoError(err)

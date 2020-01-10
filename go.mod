@@ -18,8 +18,6 @@ replace github.com/status-im/status-go/eth-node => ./eth-node
 
 replace github.com/status-im/status-go/whisper/v6 => ./whisper
 
-replace github.com/status-im/status-go/waku => ./waku
-
 require (
 	github.com/beevik/ntp v0.2.0
 	github.com/ethereum/go-ethereum v1.9.5
@@ -39,7 +37,6 @@ require (
 	github.com/status-im/status-go/eth-node v1.0.0
 	github.com/status-im/status-go/extkeys v1.0.0
 	github.com/status-im/status-go/protocol v1.0.1
-	github.com/status-im/status-go/waku v1.0.0
 	github.com/status-im/status-go/whisper/v6 v6.0.1
 	github.com/status-im/tcp-shaker v0.0.0-20191114194237-215893130501
 	github.com/stretchr/testify v1.4.0
