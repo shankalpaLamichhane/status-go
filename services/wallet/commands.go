@@ -158,7 +158,6 @@ func (c *newBlocksTransfersCommand) Run(parent context.Context) (err error) {
 			return err
 		}
 		c.from = toDBHeader(from)
-		log.Debug("initialized downloader for new blocks transfers", "starting at", c.from.Number)
 	}
 	num := new(big.Int).Add(c.from.Number, one)
 	ctx, cancel := context.WithTimeout(parent, 5*time.Second)
@@ -168,7 +167,7 @@ func (c *newBlocksTransfersCommand) Run(parent context.Context) (err error) {
 		log.Warn("failed to get latest block", "number", num, "error", err)
 		return err
 	}
-	log.Debug("reactor received new block", "header", latest.Hash())
+	log.Info("reactor received new block", "header", num)
 	ctx, cancel = context.WithTimeout(parent, 10*time.Second)
 	latestHeader, removed, latestValidSavedBlock, err := c.onNewBlock(ctx, c.from, latest)
 	cancel()
@@ -178,7 +177,7 @@ func (c *newBlocksTransfersCommand) Run(parent context.Context) (err error) {
 	}
 
 	if latestHeader == nil && len(removed) == 0 {
-		log.Debug("new block already in the database", "block", latest.Number)
+		log.Info("new block already in the database", "block", latest.Number)
 		return nil
 	}
 	latestHeader.Loaded = true
@@ -188,6 +187,8 @@ func (c *newBlocksTransfersCommand) Run(parent context.Context) (err error) {
 	fromN := uint64(0)
 	if latestValidSavedBlock != nil {
 		fromN = latestValidSavedBlock.Number.Uint64()
+	} else {
+		fromN = latestHeader.Number.Uint64()
 	}
 	toN := latestHeader.Number.Uint64()
 	newHeadersByAddress := map[common.Address][]*DBHeader{}
@@ -199,7 +200,7 @@ func (c *newBlocksTransfersCommand) Run(parent context.Context) (err error) {
 			return err
 		}
 		dbHeader := toDBHeader(header)
-		log.Debug("reactor get transfers", "block", dbHeader.Hash, "number", dbHeader.Number)
+		log.Info("reactor get transfers", "block", dbHeader.Hash, "number", dbHeader.Number)
 		transfers, err := c.getTransfers(parent, dbHeader)
 		if err != nil {
 			log.Error("failed to get transfers", "header", dbHeader.Hash, "error", err)
@@ -247,6 +248,7 @@ func (c *newBlocksTransfersCommand) Run(parent context.Context) (err error) {
 			Accounts:    uniqueAccountsFromTransfers(all),
 		})
 	}
+	log.Info("before sending new block event", "latest", latestHeader != nil, "removed", len(removed), "len", len(uniqueAccountsFromTransfers(all)))
 	if latestHeader != nil && len(removed) == 0 {
 		c.feed.Send(Event{
 			Type:        EventNewBlock,
@@ -268,9 +270,18 @@ func (c *newBlocksTransfersCommand) onNewBlock(ctx context.Context, from *DBHead
 		return nil, nil, nil, err
 	}
 
-	// the last saved block is still valid, no need to reorg
-	if lastSavedBlock == nil || latest.Number.Cmp(lastSavedBlock.Number) == -1 {
+	if lastSavedBlock == nil {
 		return toHead(latest), nil, lastSavedBlock, nil
+	}
+
+	header, err := c.client.HeaderByNumber(ctx, lastSavedBlock.Number)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+
+	// the last saved block is still valid, no need to reorg
+	if header.Hash() == lastSavedBlock.Hash {
+		return toHead(latest), nil, nil, nil
 	}
 
 	log.Debug("wallet reactor spotted reorg", "last header in db", from.Hash, "new parent", latest.ParentHash)
@@ -286,8 +297,13 @@ func (c *newBlocksTransfersCommand) onNewBlock(ctx context.Context, from *DBHead
 			continue
 		}
 
+		header, err := c.client.HeaderByNumber(ctx, lastSavedBlock.Number)
+		if err != nil {
+			return nil, nil, nil, err
+		}
+
 		// the last saved block is still valid, no need to reorg
-		if latest.Number.Cmp(lastSavedBlock.Number) == -1 {
+		if header.Hash() == lastSavedBlock.Hash {
 			return toHead(latest), nil, lastSavedBlock, nil
 		}
 	}
@@ -637,7 +653,7 @@ func (c *controlCommand) Run(parent context.Context) error {
 		BlockNumber: head.Number,
 	})
 
-	log.Debug("watching new blocks", "start from", head.Number)
+	log.Info("watching new blocks", "start from", head.Number)
 	cmd := &newBlocksTransfersCommand{
 		db:       c.db,
 		chain:    c.chain,
@@ -648,8 +664,15 @@ func (c *controlCommand) Run(parent context.Context) error {
 		feed:     c.feed,
 		from:     toDBHeader(head),
 	}
+
+	err = cmd.Command()(parent)
+	if err != nil {
+		log.Warn("error on running newBlocksTransfersCommand", "err", err)
+		return err
+	}
+
 	log.Info("end control command")
-	return cmd.Command()(parent)
+	return err
 }
 
 func (c *controlCommand) Command() Command {
