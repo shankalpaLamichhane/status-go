@@ -97,12 +97,12 @@ func (c *erc20HistoricalCommand) Run(ctx context.Context) (err error) {
 		}
 		c.foundHeaders = append(c.foundHeaders, headers...)
 
-		/*err = c.db.ProcessBlocks(c.address, from, to, headers, erc20Transfer)
+		/*err = c.db.ProcessBlocks(c.address, from, to, headers, erc20Transfer)*/
 		if err != nil {
 			c.iterator.Revert()
 			log.Error("failed to save downloaded erc20 blocks with transfers", "error", err)
 			return err
-		}*/
+		}
 	}
 	log.Info("wallet historical downloader for erc20 transfers finished", "in", time.Since(start))
 	return nil
@@ -114,10 +114,10 @@ type newBlocksTransfersCommand struct {
 	chain    *big.Int
 	erc20    *ERC20TransfersDownloader
 	eth      *ETHTransferDownloader
-	client   reactorClient
+	client   *ethclient.Client
 	feed     *event.Feed
 
-	from, to *DBHeader
+	initialFrom, from, to *DBHeader
 }
 
 func (c *newBlocksTransfersCommand) Command() Command {
@@ -148,6 +148,120 @@ func (c *newBlocksTransfersCommand) Verify(parent context.Context) (err error) {
 	return nil
 }
 
+func (c *newBlocksTransfersCommand) checkBlocks(parent context.Context, from, to *big.Int) (addedTransfers []Transfer, err error) {
+	fromByAddress := map[common.Address]*big.Int{}
+	toByAddress := map[common.Address]*big.Int{}
+
+	for _, address := range c.accounts {
+		fromByAddress[address] = from
+		toByAddress[address] = to
+	}
+	balanceCache := newBalanceCache()
+	blocksCommand := &findAndCheckBlockRangeCommand{
+		accounts:      c.accounts,
+		db:            c.db,
+		chain:         c.chain,
+		client:        c.erc20.client,
+		balanceCache:  balanceCache,
+		feed:          c.feed,
+		fromByAddress: fromByAddress,
+		toByAddress:   toByAddress,
+	}
+
+	ctx, cancel := context.WithTimeout(parent, 30*time.Second)
+	err = blocksCommand.Command()(ctx)
+	cancel()
+
+	if err != nil {
+		return nil, err
+	}
+
+	blocksByAddress := map[common.Address][]*big.Int{}
+	affectedAddresses := []common.Address{}
+
+	for address, headers := range blocksCommand.foundHeaders {
+		if len(headers) > 0 {
+			blocks := make([]*big.Int, len(headers))
+			for i, header := range headers {
+				blocks[i] = header.Number
+			}
+
+			blocksByAddress[address] = blocks
+			affectedAddresses = append(affectedAddresses, address)
+		}
+	}
+
+	/*txCommand := &loadTransfersCommand{
+		accounts:        affectedAddresses,
+		db:              c.db,
+		chain:           c.chain,
+		client:          c.client,
+		blocksByAddress: blocksByAddress,
+	}*/
+
+	ctx, cancel = context.WithTimeout(parent, 30*time.Second)
+	//err = txCommand.Command()(ctx)
+
+	return nil, nil
+	/*cancel()
+
+	return nil, nil
+
+		if err != nil {
+			return nil, err
+		}
+
+		return txCommand.addedTransfers, nil*/
+}
+
+func (c *newBlocksTransfersCommand) checkSingleBlock(parent context.Context, block *big.Int) (addedTransfers []Transfer, err error) {
+	newHeadersByAddress := map[common.Address][]*DBHeader{}
+	all := []Transfer{}
+
+	ctx, cancel := context.WithTimeout(parent, 30*time.Second)
+	header, err := c.client.HeaderByNumber(ctx, block)
+	cancel()
+	if err != nil {
+		return nil, err
+	}
+
+	dbHeader := toDBHeader(header)
+	log.Info("reactor get transfers", "block", dbHeader.Hash, "number", dbHeader.Number)
+	transfers, err := c.getTransfers(parent, dbHeader)
+	if err != nil {
+		log.Error("failed to get transfers", "header", dbHeader.Hash, "error", err)
+		return nil, err
+	}
+	if len(transfers) > 0 {
+		for _, transfer := range transfers {
+			headers, ok := newHeadersByAddress[transfer.Address]
+			if !ok {
+				headers = []*DBHeader{}
+			}
+			newHeadersByAddress[transfer.Address] = append(headers, dbHeader)
+		}
+	}
+	all = append(all, transfers...)
+
+	for _, address := range c.accounts {
+		headers, ok := newHeadersByAddress[address]
+		if ok {
+			err = c.db.AddHeaders(address, headers)
+			if err != nil {
+				log.Error("failed to persist blocks", "error", err)
+				return nil, err
+			}
+		}
+	}
+
+	err = c.db.ProcessTranfers(transfers, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return all, nil
+}
+
 func (c *newBlocksTransfersCommand) Run(parent context.Context) (err error) {
 	if c.from == nil {
 		ctx, cancel := context.WithTimeout(parent, 3*time.Second)
@@ -169,12 +283,17 @@ func (c *newBlocksTransfersCommand) Run(parent context.Context) (err error) {
 	}
 	log.Info("reactor received new block", "header", num)
 	ctx, cancel = context.WithTimeout(parent, 10*time.Second)
-	latestHeader, removed, latestValidSavedBlock, err := c.onNewBlock(ctx, c.from, latest)
+	latestHeader, removed, latestValidSavedBlock, reorgSpotted, err := c.onNewBlock(ctx, c.from, latest)
 	cancel()
 	if err != nil {
 		log.Error("failed to process new header", "header", latest, "error", err)
 		return err
 	}
+
+	/*err = c.db.DeleteHeaders(removed)
+	if err != nil {
+		return err
+	}*/
 
 	if latestHeader == nil && len(removed) == 0 {
 		log.Info("new block already in the database", "block", latest.Number)
@@ -184,68 +303,53 @@ func (c *newBlocksTransfersCommand) Run(parent context.Context) (err error) {
 
 	all := []Transfer{}
 
-	fromN := uint64(0)
-	if latestValidSavedBlock != nil {
-		fromN = latestValidSavedBlock.Number.Uint64()
-	} else {
-		fromN = latestHeader.Number.Uint64()
+	fromB := latest.Number
+	scanRange := false
+
+	if reorgSpotted {
+		if latestValidSavedBlock != nil {
+			scanRange = true
+			fromB = c.initialFrom.Number
+			rangeDiff := big.NewInt(0).Sub(latest.Number, latestValidSavedBlock.Number)
+			if rangeDiff.Cmp(one) > 0 {
+				fromB = latestValidSavedBlock.Number
+			} else {
+				scanRange = false
+				fromB = latest.Number
+			}
+		}
+
+		if c.initialFrom != nil {
+			scanRange = true
+			fromB = c.initialFrom.Number
+		}
 	}
-	toN := latestHeader.Number.Uint64()
-	newHeadersByAddress := map[common.Address][]*DBHeader{}
-	for n := fromN; n <= toN; n++ {
-		ctx, cancel = context.WithTimeout(parent, 10*time.Second)
-		header, err := c.client.HeaderByNumber(ctx, big.NewInt(int64(n)))
+
+	addedTransfers := []Transfer{}
+	if !scanRange {
+		ctx, cancel := context.WithTimeout(parent, 30*time.Second)
+		addedTransfers, err = c.checkSingleBlock(ctx, fromB)
 		cancel()
 		if err != nil {
 			return err
 		}
-		dbHeader := toDBHeader(header)
-		log.Info("reactor get transfers", "block", dbHeader.Hash, "number", dbHeader.Number)
-		transfers, err := c.getTransfers(parent, dbHeader)
+
+	} else {
+		ctx, cancel := context.WithTimeout(parent, 30*time.Second)
+		addedTransfers, err = c.checkBlocks(ctx, fromB, latest.Number)
+		cancel()
 		if err != nil {
-			log.Error("failed to get transfers", "header", dbHeader.Hash, "error", err)
 			return err
 		}
-		if len(transfers) > 0 {
-			for _, transfer := range transfers {
-				headres, ok := newHeadersByAddress[transfer.Address]
-				if !ok {
-					headres = []*DBHeader{}
-				}
-				newHeadersByAddress[transfer.Address] = append(headres, dbHeader)
-			}
-		}
-		all = append(all, transfers...)
 	}
 
-	fromBlock := big.NewInt(0)
-	if latestValidSavedBlock != nil {
-		fromBlock = latestValidSavedBlock.Number
-	}
-
-	for _, address := range c.accounts {
-		headres, ok := newHeadersByAddress[address]
-		if ok {
-			err = c.db.ProcessBlocks(address, fromBlock, latestHeader.Number, headres)
-			if err != nil {
-				log.Error("failed to persist blocks", "error", err)
-				return err
-			}
-		}
-	}
-
-	err = c.db.ProcessTranfers(all, removed)
-	if err != nil {
-		log.Error("failed to persist transfers", "error", err)
-		return err
-	}
 	c.from = toDBHeader(latest)
 	if len(removed) != 0 {
 		lth := len(removed)
 		c.feed.Send(Event{
 			Type:        EventReorg,
 			BlockNumber: removed[lth-1].Number,
-			Accounts:    uniqueAccountsFromTransfers(all),
+			Accounts:    uniqueAccountsFromTransfers(addedTransfers),
 		})
 	}
 	log.Info("before sending new block event", "latest", latestHeader != nil, "removed", len(removed), "len", len(uniqueAccountsFromTransfers(all)))
@@ -253,35 +357,34 @@ func (c *newBlocksTransfersCommand) Run(parent context.Context) (err error) {
 		c.feed.Send(Event{
 			Type:        EventNewBlock,
 			BlockNumber: latestHeader.Number,
-			Accounts:    uniqueAccountsFromTransfers(all),
+			Accounts:    uniqueAccountsFromTransfers(addedTransfers),
 		})
 	}
 	return nil
 }
 
-func (c *newBlocksTransfersCommand) onNewBlock(ctx context.Context, from *DBHeader, latest *types.Header) (lastestHeader *DBHeader, removed []*DBHeader, lastSavedValidHeader *DBHeader, err error) {
+func (c *newBlocksTransfersCommand) onNewBlock(ctx context.Context, from *DBHeader, latest *types.Header) (lastestHeader *DBHeader, removed []*DBHeader, lastSavedValidHeader *DBHeader, reorgSpotted bool, err error) {
 	if from.Hash == latest.ParentHash {
 		// parent matching from node in the cache. on the same chain.
-		return toHead(latest), nil, nil, nil
+		return toHead(latest), nil, nil, false, nil
 	}
 
 	lastSavedBlock, err := c.db.GetLastSavedBlock()
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, nil, nil, false, err
 	}
 
 	if lastSavedBlock == nil {
-		return toHead(latest), nil, lastSavedBlock, nil
+		return toHead(latest), nil, nil, true, nil
 	}
 
 	header, err := c.client.HeaderByNumber(ctx, lastSavedBlock.Number)
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, nil, nil, false, err
 	}
 
-	// the last saved block is still valid, no need to reorg
 	if header.Hash() == lastSavedBlock.Hash {
-		return toHead(latest), nil, nil, nil
+		return toHead(latest), nil, lastSavedBlock, true, nil
 	}
 
 	log.Debug("wallet reactor spotted reorg", "last header in db", from.Hash, "new parent", latest.ParentHash)
@@ -290,7 +393,7 @@ func (c *newBlocksTransfersCommand) onNewBlock(ctx context.Context, from *DBHead
 		lastSavedBlock, err = c.db.GetLastSavedBlockBefore(lastSavedBlock.Number)
 
 		if err != nil {
-			return nil, nil, nil, err
+			return nil, nil, nil, false, err
 		}
 
 		if lastSavedBlock == nil {
@@ -299,16 +402,16 @@ func (c *newBlocksTransfersCommand) onNewBlock(ctx context.Context, from *DBHead
 
 		header, err := c.client.HeaderByNumber(ctx, lastSavedBlock.Number)
 		if err != nil {
-			return nil, nil, nil, err
+			return nil, nil, nil, false, err
 		}
 
-		// the last saved block is still valid, no need to reorg
+		// the last saved block is still valid
 		if header.Hash() == lastSavedBlock.Hash {
-			return toHead(latest), nil, lastSavedBlock, nil
+			return toHead(latest), nil, lastSavedBlock, true, nil
 		}
 	}
 
-	return toHead(latest), removed, lastSavedBlock, nil
+	return toHead(latest), removed, lastSavedBlock, true, nil
 }
 
 func (c *newBlocksTransfersCommand) getTransfers(parent context.Context, header *DBHeader) ([]Transfer, error) {
@@ -434,10 +537,11 @@ func getTransfersByBlocks(ctx context.Context, db *Database, downloader *ETHTran
 	return allTransfers, nil
 }
 
-func loadTransfers(ctx context.Context, accounts []common.Address, db *Database, client *ethclient.Client, chain *big.Int, limit int, blocksByAddress map[common.Address][]*big.Int) error {
-	start := time.Now()
+func loadTransfers(ctx context.Context, accounts []common.Address, db *Database, client *ethclient.Client, chain *big.Int, limit int, blocksByAddress map[common.Address][]*big.Int) ([]Transfer, error) {
+	//start := time.Now()
 	group := NewGroup(ctx)
 
+	//commands := []*transfersCommand{}
 	for _, address := range accounts {
 		blocks, ok := blocksByAddress[address]
 
@@ -446,7 +550,7 @@ func loadTransfers(ctx context.Context, accounts []common.Address, db *Database,
 		}
 
 		for _, block := range blocks {
-			erc20 := &transfersCommand{
+			command := &transfersCommand{
 				db:      db,
 				client:  client,
 				address: address,
@@ -458,19 +562,28 @@ func loadTransfers(ctx context.Context, accounts []common.Address, db *Database,
 				},
 				block: block,
 			}
-			group.Add(erc20.Command())
+			//commands = append(commands, command)
+			group.Add(command.Command())
 		}
 	}
 	select {
 	case <-ctx.Done():
-		return ctx.Err()
+		return nil, nil
 	case <-group.WaitAsync():
-		log.Info("loadTransfers finished", "in", time.Since(start))
-		return nil
+		return nil, nil
+		/*log.Info("loadTransfers finished", "in", time.Since(start))
+		all := []Transfer{}
+		for _, c := range commands {
+			if len(c.addedTransfers) > 0 {
+				all = append(all, c.addedTransfers...)
+			}
+		}
+
+		return all, nil*/
 	}
 }
 
-func (c *controlCommand) LoadTransfers(ctx context.Context, downloader *ETHTransferDownloader, limit int) error {
+func (c *controlCommand) LoadTransfers(ctx context.Context, downloader *ETHTransferDownloader, limit int) ([]Transfer, error) {
 	return loadTransfers(ctx, c.accounts, c.db, c.client, c.chain, limit, make(map[common.Address][]*big.Int))
 }
 
@@ -642,7 +755,7 @@ func (c *controlCommand) Run(parent context.Context) error {
 		signer:   types.NewEIP155Signer(c.chain),
 		db:       c.db,
 	}
-	err = c.LoadTransfers(parent, downloader, 40)
+	_, err = c.LoadTransfers(parent, downloader, 40)
 	if err != nil {
 		return err
 	}
@@ -655,14 +768,15 @@ func (c *controlCommand) Run(parent context.Context) error {
 
 	log.Info("watching new blocks", "start from", head.Number)
 	cmd := &newBlocksTransfersCommand{
-		db:       c.db,
-		chain:    c.chain,
-		client:   c.client,
-		accounts: c.accounts,
-		eth:      c.eth,
-		erc20:    c.erc20,
-		feed:     c.feed,
-		from:     toDBHeader(head),
+		db:          c.db,
+		chain:       c.chain,
+		client:      c.client,
+		accounts:    c.accounts,
+		eth:         c.eth,
+		erc20:       c.erc20,
+		feed:        c.feed,
+		initialFrom: toDBHeader(head),
+		from:        toDBHeader(head),
 	}
 
 	err = cmd.Command()(parent)
@@ -722,6 +836,7 @@ type transfersCommand struct {
 	feed           *event.Feed
 	iterator       *IterativeDownloader
 	controlCommand *controlCommand
+	addedTransfers []Transfer
 }
 
 func (c *transfersCommand) Command() Command {
@@ -743,8 +858,10 @@ func (c *transfersCommand) Run(ctx context.Context) (err error) {
 		log.Error("SaveTranfers error", "error", err)
 		return err
 	}
+	/*
+		c.addedTransfers = allTransfers
 
-	log.Debug("transfers loaded", "address", c.address, "len", len(allTransfers))
+		log.Debug("transfers loaded", "address", c.address, "len", len(allTransfers))*/
 	return nil
 }
 
@@ -754,6 +871,7 @@ type loadTransfersCommand struct {
 	chain           *big.Int
 	client          *ethclient.Client
 	blocksByAddress map[common.Address][]*big.Int
+	addedTransfers  []Transfer
 }
 
 func (c *loadTransfersCommand) Command() Command {
@@ -763,23 +881,29 @@ func (c *loadTransfersCommand) Command() Command {
 	}.Run
 }
 
-func (c *loadTransfersCommand) LoadTransfers(ctx context.Context, downloader *ETHTransferDownloader, limit int, blocksByAddress map[common.Address][]*big.Int) error {
+func (c *loadTransfersCommand) LoadTransfers(ctx context.Context, downloader *ETHTransferDownloader, limit int, blocksByAddress map[common.Address][]*big.Int) ([]Transfer, error) {
 	return loadTransfers(ctx, c.accounts, c.db, c.client, c.chain, limit, blocksByAddress)
 }
 
-func (c *loadTransfersCommand) Run(parent context.Context) (err error) {
+func (c *loadTransfersCommand) Run(parent context.Context) error {
 	downloader := &ETHTransferDownloader{
 		client:   c.client,
 		accounts: c.accounts,
 		signer:   types.NewEIP155Signer(c.chain),
 		db:       c.db,
 	}
-	err = c.LoadTransfers(parent, downloader, 40, c.blocksByAddress)
+
+	_, err := c.LoadTransfers(parent, downloader, 40, c.blocksByAddress)
+
 	if err != nil {
 		return err
 	}
+	/*
+		return nil
 
-	return
+		c.addedTransfers = addedTransfers*/
+
+	return nil
 }
 
 type findAndCheckBlockRangeCommand struct {
@@ -791,6 +915,7 @@ type findAndCheckBlockRangeCommand struct {
 	feed          *event.Feed
 	fromByAddress map[common.Address]*big.Int
 	toByAddress   map[common.Address]*big.Int
+	foundHeaders  map[common.Address][]*DBHeader
 }
 
 func (c *findAndCheckBlockRangeCommand) Command() Command {
@@ -811,11 +936,14 @@ func (c *findAndCheckBlockRangeCommand) Run(parent context.Context) (err error) 
 		return err
 	}
 
+	allHeadersByAddress := map[common.Address][]*DBHeader{}
 	for _, address := range c.accounts {
 		ethHeaders := ethHeadersByAddress[address]
 		erc20Headers := erc20HeadersByAddress[address]
 
 		allHeaders := append(ethHeaders, erc20Headers...)
+
+		allHeadersByAddress[address] = allHeaders
 
 		log.Debug("saving headers", "len", len(allHeaders), "address")
 		err = c.db.ProcessBlocks(address, newFromByAddress[address], c.toByAddress[address], allHeaders)
@@ -823,6 +951,8 @@ func (c *findAndCheckBlockRangeCommand) Run(parent context.Context) (err error) 
 			return err
 		}
 	}
+
+	c.foundHeaders = allHeadersByAddress
 
 	return
 }

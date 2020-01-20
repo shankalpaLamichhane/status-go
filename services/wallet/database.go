@@ -118,6 +118,30 @@ func (db Database) Close() error {
 	return db.db.Close()
 }
 
+func (db Database) AddHeaders(account common.Address, headers []*DBHeader) (err error) {
+	var (
+		tx *sql.Tx
+	)
+	tx, err = db.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer func() {
+		if err == nil {
+			err = tx.Commit()
+			return
+		}
+		_ = tx.Rollback()
+	}()
+
+	err = insertBlocksWithTransactions(tx, account, db.network, headers)
+	if err != nil {
+		return
+	}
+
+	return
+}
+
 func (db Database) ProcessBlocks(account common.Address, from *big.Int, to *big.Int, headers []*DBHeader) (err error) {
 	var (
 		tx *sql.Tx
@@ -171,6 +195,25 @@ func (db Database) ProcessTranfers(transfers []Transfer, removed []*DBHeader) (e
 	if err != nil {
 		return
 	}
+	return
+}
+
+func (db Database) DeleteHeaders(removed []*DBHeader) (err error) {
+	var (
+		tx *sql.Tx
+	)
+	tx, err = db.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer func() {
+		if err == nil {
+			err = tx.Commit()
+			return
+		}
+		_ = tx.Rollback()
+	}()
+	err = deleteHeaders(tx, removed)
 	return
 }
 
@@ -657,7 +700,7 @@ func insertBlocksWithTransactions(creator statementCreator, account common.Addre
 }
 
 func insertRange(creator statementCreator, account common.Address, network uint64, from *big.Int, to *big.Int) (err error) {
-	insert, err := creator.Prepare("INSERT INTO blocks_ranges (network_id, address, blk_from, blk_to) VALUES (?, ?, ?, ?)")
+	insert, err := creator.Prepare("INSERT OR IGNORE INTO blocks_ranges (network_id, address, blk_from, blk_to) VALUES (?, ?, ?, ?)")
 	if err != nil {
 		return err
 	}

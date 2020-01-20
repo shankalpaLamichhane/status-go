@@ -128,7 +128,8 @@ func (s *NewBlocksSuite) TestReorg() {
 	// `not found` returned when we query head+1 block
 	ctx, cancel = context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
-	s.cmd.from = toDBHeader(s.backend.Ethereum.BlockChain().GetHeaderByNumber(15))
+	s.cmd.from = toDBHeader(s.backend.Ethereum.BlockChain().GetHeaderByNumber(14))
+	s.cmd.initialFrom = toDBHeader(s.backend.Ethereum.BlockChain().GetHeaderByNumber(14))
 	s.Require().EqualError(s.runCmdUntilError(ctx), "not found")
 
 	transfers, err := s.db.GetTransfers(big.NewInt(0), nil)
@@ -162,6 +163,7 @@ func (s *NewBlocksSuite) TestReorg() {
 
 	transfers, err = s.db.GetTransfers(big.NewInt(0), nil)
 	s.Require().NoError(err)
+	s.T().Log("fooo", len(transfers))
 	s.Require().Len(transfers, 10)
 }
 
