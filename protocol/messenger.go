@@ -656,6 +656,9 @@ func (m *Messenger) CreateGroupChatWithMembers(ctx context.Context, name string,
 	if err != nil {
 		return nil, err
 	}
+
+	logger.Info("Created group chat", zap.Any("group", group), zap.Any("members", group.Members()), zap.Any("admins", group.Admins()))
+
 	recipients, err := stringSliceToPublicKeys(group.Members(), true)
 	if err != nil {
 		return nil, err
@@ -1318,6 +1321,10 @@ func (m *Messenger) SendChatMessage(ctx context.Context, message *Message) (*Mes
 		return nil, errors.New("Chat not found")
 	}
 
+	logger.Info("Chat", zap.Any("Chat", chat))
+	logger.Info("members", zap.Any("members", chat.Members))
+	logger.Info("admins", zap.Any("admins", chat.MembershipUpdates))
+
 	err := extendMessageFromChat(message, chat, &m.identity.PublicKey, m.getTimesource())
 	if err != nil {
 		return nil, err
@@ -1778,6 +1785,7 @@ func (m *Messenger) handleRetrievedMessages(chatWithMessages map[transport.Filte
 
 						rawMembershipUpdate := msg.ParsedMessage.(protobuf.MembershipUpdateMessage)
 
+						logger.Info("HANDLING", zap.Any("update", rawMembershipUpdate))
 						err = m.handler.HandleMembershipUpdate(messageState, messageState.AllChats[rawMembershipUpdate.ChatId], rawMembershipUpdate, m.systemMessagesTranslations)
 						if err != nil {
 							logger.Warn("failed to handle MembershipUpdate", zap.Error(err))

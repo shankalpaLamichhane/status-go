@@ -210,6 +210,9 @@ func (p *messageProcessor) EncodeMembershipUpdate(
 		Events:  group.Events(),
 		Message: chatMessage,
 	}
+	logger := p.logger.With(zap.String("site", "encodemembershio"))
+	logger.Info("message", zap.Any("memsasge", message))
+
 	encodedMessage, err := v1protocol.EncodeMembershipUpdateMessage(message)
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to encode membership update message")
