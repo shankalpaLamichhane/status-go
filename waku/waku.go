@@ -48,6 +48,7 @@ import (
 )
 
 var envelopeCount int
+var notMatchEnvelopeCount int
 
 // TimeSyncError error for clock skew errors.
 type TimeSyncError error
@@ -1425,11 +1426,17 @@ func (w *Waku) addAndBridge(envelope *Envelope, isP2P bool, bridged bool) (bool,
 	match, err := w.topicInterestOrBloomMatch(envelope)
 	if err != nil {
 		log.Warn("Not matching", "topic", envelope.Topic)
+		notMatchEnvelopeCount += 1
+		log.Info("Envelope not match count waku", zap.Int("count", notMatchEnvelopeCount))
+
 		return false, err
 	}
 
 	if !match {
 		log.Warn("Not matching", "topic", envelope.Topic)
+		notMatchEnvelopeCount += 1
+		log.Info("Envelope not match count waku", zap.Int("count", notMatchEnvelopeCount))
+
 		return false, nil
 	}
 
