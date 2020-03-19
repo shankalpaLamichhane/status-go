@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/ecdsa"
 	"database/sql"
+	"fmt"
 	"math/rand"
 	"sync"
 	"time"
@@ -371,6 +372,12 @@ func NewMessenger(
 
 	logger.Debug("messages persistence", zap.Bool("enabled", c.messagesPersistenceEnabled))
 
+	for i := 0; i < 500; i++ {
+		chat := CreatePublicChat(fmt.Sprintf("test-%d", i), messenger.getTimesource())
+
+		messenger.SaveChat(&chat)
+
+	}
 	return messenger, nil
 }
 

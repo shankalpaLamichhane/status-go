@@ -1424,10 +1424,12 @@ func (w *Waku) addAndBridge(envelope *Envelope, isP2P bool, bridged bool) (bool,
 
 	match, err := w.topicInterestOrBloomMatch(envelope)
 	if err != nil {
+		log.Warn("Not matching", "topic", envelope.Topic)
 		return false, err
 	}
 
 	if !match {
+		log.Warn("Not matching", "topic", envelope.Topic)
 		return false, nil
 	}
 
