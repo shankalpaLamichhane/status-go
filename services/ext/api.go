@@ -206,6 +206,10 @@ func (api *PublicAPI) LeaveGroupChat(ctx Context, chatID string) (*protocol.Mess
 	return api.service.messenger.LeaveGroupChat(ctx, chatID)
 }
 
+func (api *PublicAPI) CreateABunchOfChats(ctx Context) error {
+	return api.service.messenger.CreateABunchOfChats(ctx)
+}
+
 func (api *PublicAPI) CreateGroupChatWithMembers(ctx Context, name string, members []string) (*protocol.MessengerResponse, error) {
 	return api.service.messenger.CreateGroupChatWithMembers(ctx, name, members)
 }

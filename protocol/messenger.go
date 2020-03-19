@@ -372,12 +372,6 @@ func NewMessenger(
 
 	logger.Debug("messages persistence", zap.Bool("enabled", c.messagesPersistenceEnabled))
 
-	for i := 0; i < 500; i++ {
-		chat := CreatePublicChat(fmt.Sprintf("test-%d", i), messenger.getTimesource())
-
-		messenger.SaveChat(&chat)
-
-	}
 	return messenger, nil
 }
 
@@ -634,6 +628,17 @@ func (m *Messenger) Leave(chat Chat) error {
 	default:
 		return errors.New("chat is neither public nor private")
 	}
+}
+
+func (m *Messenger) CreateABunchOfChats(ctx context.Context) error {
+	for i := 0; i < 500; i++ {
+		chat := CreatePublicChat(fmt.Sprintf("test-%d", i), m.getTimesource())
+
+		if err := m.SaveChat(&chat); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (m *Messenger) CreateGroupChatWithMembers(ctx context.Context, name string, members []string) (*MessengerResponse, error) {
