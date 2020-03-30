@@ -75,7 +75,7 @@ func TestMessagesExist(t *testing.T) {
 	require.False(t, result["3"])
 }
 
-func TestMessageByChatID(t *testing.T) {
+func TestMessageByChatIDDesc(t *testing.T) {
 	db, err := openTestDB()
 	require.NoError(t, err)
 	p := sqlitePersistence{db: db}
@@ -132,17 +132,15 @@ func TestMessageByChatID(t *testing.T) {
 		iter   int
 	)
 	for {
-		var (
-			items []*Message
-			err   error
-		)
+		var err error
 
-		items, cursor, err = p.MessageByChatID(chatID, cursor, pageSize)
+		pagination, err := p.MessageByChatID(MessageCriteria{ChatID: chatID, Cursor: cursor, Limit: pageSize})
 		require.NoError(t, err)
-		result = append(result, items...)
+		result = append(result, pagination.Messages...)
 
 		iter++
-		if len(cursor) == 0 || iter > count {
+		cursor = pagination.Prev
+		if len(pagination.Prev) == 0 || iter > count {
 			break
 		}
 	}
@@ -156,6 +154,156 @@ func TestMessageByChatID(t *testing.T) {
 			return result[i].Clock > result[j].Clock
 		}),
 	)
+}
+
+func TestMessageByChatIDAsc(t *testing.T) {
+	db, err := openTestDB()
+	require.NoError(t, err)
+	p := sqlitePersistence{db: db}
+	chatID := testPublicChatID
+	count := 1000
+	pageSize := 50
+
+	var messages []*Message
+	for i := 0; i < count; i++ {
+		messages = append(messages, &Message{
+			ID:          strconv.Itoa(i),
+			LocalChatID: chatID,
+			ChatMessage: protobuf.ChatMessage{
+				Clock: uint64(i),
+			},
+			From: "me",
+		})
+
+		// Add some other chats.
+		if count%5 == 0 {
+			messages = append(messages, &Message{
+				ID:          strconv.Itoa(count + i),
+				LocalChatID: "other-chat",
+				ChatMessage: protobuf.ChatMessage{
+					Clock: uint64(i),
+				},
+
+				From: "me",
+			})
+		}
+	}
+
+	// Add some out-of-order message. Add more than page size.
+	outOfOrderCount := pageSize + 1
+	allCount := count + outOfOrderCount
+	for i := 0; i < pageSize+1; i++ {
+		messages = append(messages, &Message{
+			ID:          strconv.Itoa(count*2 + i),
+			LocalChatID: chatID,
+			ChatMessage: protobuf.ChatMessage{
+				Clock: uint64(i),
+			},
+
+			From: "me",
+		})
+	}
+
+	err = p.SaveMessagesLegacy(messages)
+	require.NoError(t, err)
+
+	var (
+		result []*Message
+		cursor string
+		iter   int
+	)
+	for {
+		var err error
+
+		pagination, err := p.MessageByChatID(MessageCriteria{Ascending: true, ChatID: chatID, Cursor: cursor, Limit: pageSize})
+		require.NoError(t, err)
+		result = append(result, pagination.Messages...)
+
+		iter++
+		cursor = pagination.Next
+		if len(pagination.Next) == 0 || iter > count {
+			break
+		}
+	}
+	require.Equal(t, "", cursor) // for loop should exit because of cursor being empty
+	require.EqualValues(t, math.Ceil(float64(allCount)/float64(pageSize)), iter)
+	require.Equal(t, len(result), allCount)
+	require.True(
+		t,
+		// Verify ascending order.
+		sort.SliceIsSorted(result, func(i, j int) bool {
+			return result[i].Clock < result[j].Clock
+		}),
+	)
+}
+
+func TestMessageByChatIDStartFromOldestUnread(t *testing.T) {
+	db, err := openTestDB()
+	require.NoError(t, err)
+	p := sqlitePersistence{db: db}
+	chatID := testPublicChatID
+	count := 1000
+	pageSize := 50
+
+	var messages []*Message
+	for i := 0; i < count; i++ {
+		messages = append(messages, &Message{
+			ID:          strconv.Itoa(i),
+			LocalChatID: chatID,
+			ChatMessage: protobuf.ChatMessage{
+				Clock: uint64(i),
+			},
+			From: "me",
+		})
+
+		// Add some other chats.
+		if count%5 == 0 {
+			messages = append(messages, &Message{
+				ID:          strconv.Itoa(count + i),
+				LocalChatID: "other-chat",
+				ChatMessage: protobuf.ChatMessage{
+					Clock: uint64(i),
+				},
+
+				From: "me",
+			})
+		}
+	}
+
+	err = p.SaveMessagesLegacy(messages)
+	require.NoError(t, err)
+
+	// Mark all read
+	err = p.MarkAllRead(chatID)
+	require.NoError(t, err)
+
+	// Add message in the middle
+	newMessage := &Message{
+		ID:          "message-id",
+		LocalChatID: chatID,
+		ChatMessage: protobuf.ChatMessage{
+			Clock: uint64(count / 2),
+		},
+		From: "me",
+	}
+
+	err = p.SaveMessagesLegacy([]*Message{newMessage})
+	require.NoError(t, err)
+
+	pagination, err := p.MessageByChatID(MessageCriteria{StartFromOldestUnread: true, ChatID: chatID, Limit: pageSize})
+	require.NoError(t, err)
+
+	require.Equal(t, len(pagination.Messages), pageSize)
+	require.Equal(t, "message-id", pagination.Messages[0].ID)
+
+	require.True(
+		t,
+		// Verify descending order.
+		sort.SliceIsSorted(pagination.Messages, func(i, j int) bool {
+			return pagination.Messages[i].Clock > pagination.Messages[j].Clock
+		}),
+	)
+
 }
 
 func TestMessageReplies(t *testing.T) {
@@ -200,9 +348,9 @@ func TestMessageReplies(t *testing.T) {
 	err = p.SaveMessagesLegacy(messages)
 	require.NoError(t, err)
 
-	retrievedMessages, _, err := p.MessageByChatID(chatID, "", 10)
+	pagination, err := p.MessageByChatID(MessageCriteria{ChatID: chatID, Limit: 10})
 	require.NoError(t, err)
-
+	retrievedMessages := pagination.Messages
 	require.Equal(t, "non-existing", retrievedMessages[0].ResponseTo)
 	require.Nil(t, retrievedMessages[0].QuotedMessage)
 
@@ -244,17 +392,15 @@ func TestMessageByChatIDWithTheSameClocks(t *testing.T) {
 		iter   int
 	)
 	for {
-		var (
-			items []*Message
-			err   error
-		)
+		var err error
 
-		items, cursor, err = p.MessageByChatID(chatID, cursor, pageSize)
+		pagination, err := p.MessageByChatID(MessageCriteria{ChatID: chatID, Cursor: cursor, Limit: pageSize})
 		require.NoError(t, err)
-		result = append(result, items...)
+		result = append(result, pagination.Messages...)
 
 		iter++
-		if cursor == "" || iter > count {
+		cursor = pagination.Prev
+		if pagination.Prev == "" || iter > count {
 			break
 		}
 	}
@@ -304,16 +450,16 @@ func TestDeleteMessagesByChatID(t *testing.T) {
 	err = insertMinimalMessage(p, "2")
 	require.NoError(t, err)
 
-	m, _, err := p.MessageByChatID("chat-id", "", 10)
+	m, err := p.MessageByChatID(MessageCriteria{ChatID: "chat-id", Limit: 10})
 	require.NoError(t, err)
-	require.Equal(t, 2, len(m))
+	require.Equal(t, 2, len(m.Messages))
 
 	err = p.DeleteMessagesByChatID("chat-id")
 	require.NoError(t, err)
 
-	m, _, err = p.MessageByChatID("chat-id", "", 10)
+	m, err = p.MessageByChatID(MessageCriteria{ChatID: "chat-id", Limit: 10})
 	require.NoError(t, err)
-	require.Equal(t, 0, len(m))
+	require.Equal(t, 0, len(m.Messages))
 
 }
 

@@ -1983,8 +1983,17 @@ func (m *Messenger) MessagesExist(ids []string) (map[string]bool, error) {
 	return m.persistence.MessagesExist(ids)
 }
 
-func (m *Messenger) MessageByChatID(chatID, cursor string, limit int) ([]*Message, string, error) {
-	return m.persistence.MessageByChatID(chatID, cursor, limit)
+type MessageCriteria struct {
+	ChatID string `json:"chatId"`
+	Cursor string `json:"cursor"`
+	// StartFromOldestUnread signals that we should start pagination from the oldest unread message
+	StartFromOldestUnread bool `json:"startFromOldestUnread"`
+	Limit                 int  `json:"limit"`
+	Ascending             bool `json:"ascending"`
+}
+
+func (m *Messenger) MessageByChatID(criteria MessageCriteria) (*MessagePagination, error) {
+	return m.persistence.MessageByChatID(criteria)
 }
 
 func (m *Messenger) SaveMessages(messages []*Message) error {

@@ -371,9 +371,9 @@ func (s *MessengerSuite) TestSendPublic() {
 	s.Require().NotEmpty(outputMessage.ID, "it sets the ID field")
 	s.Require().Equal(protobuf.ChatMessage_PUBLIC_GROUP, outputMessage.MessageType)
 
-	savedMessages, _, err := s.m.MessageByChatID(chat.ID, "", 10)
+	pagination, err := s.m.MessageByChatID(MessageCriteria{ChatID: chat.ID, Limit: 10})
 	s.Require().NoError(err)
-	s.Require().Equal(1, len(savedMessages), "it saves the message")
+	s.Require().Equal(1, len(pagination.Messages), "it saves the message")
 }
 
 func (s *MessengerSuite) TestSendPrivateOneToOne() {
@@ -1299,13 +1299,13 @@ func (s *MessengerSuite) TestBlockContact() {
 	s.Require().Equal(2, len(actualChats))
 
 	// The messages have been deleted
-	chat2Messages, _, err := s.m.MessageByChatID(chat2.ID, "", 20)
+	chat2Messages, err := s.m.MessageByChatID(MessageCriteria{ChatID: chat2.ID, Limit: 20})
 	s.Require().NoError(err)
-	s.Require().Equal(3, len(chat2Messages))
+	s.Require().Equal(3, len(chat2Messages.Messages))
 
-	chat3Messages, _, err := s.m.MessageByChatID(chat3.ID, "", 20)
+	chat3Messages, err := s.m.MessageByChatID(MessageCriteria{ChatID: chat3.ID, Limit: 20})
 	s.Require().NoError(err)
-	s.Require().Equal(1, len(chat3Messages))
+	s.Require().Equal(1, len(chat3Messages.Messages))
 
 }
 

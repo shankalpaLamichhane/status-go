@@ -280,21 +280,8 @@ func (api *PublicAPI) SetInstallationMetadata(installationID string, data *multi
 	return api.service.messenger.SetInstallationMetadata(installationID, data)
 }
 
-type ApplicationMessagesResponse struct {
-	Messages []*protocol.Message `json:"messages"`
-	Cursor   string              `json:"cursor"`
-}
-
-func (api *PublicAPI) ChatMessages(chatID, cursor string, limit int) (*ApplicationMessagesResponse, error) {
-	messages, cursor, err := api.service.messenger.MessageByChatID(chatID, cursor, limit)
-	if err != nil {
-		return nil, err
-	}
-
-	return &ApplicationMessagesResponse{
-		Messages: messages,
-		Cursor:   cursor,
-	}, nil
+func (api *PublicAPI) ChatMessages(criteria protocol.MessageCriteria) (*protocol.MessagePagination, error) {
+	return api.service.messenger.MessageByChatID(criteria)
 }
 
 func (api *PublicAPI) StartMessenger() error {

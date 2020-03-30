@@ -313,23 +313,71 @@ func (db sqlitePersistence) MessagesExist(ids []string) (map[string]bool, error)
 	return result, nil
 }
 
+type MessagePagination struct {
+	Messages []*Message `json:"messages"`
+	Next     string     `json:"next"`
+	Prev     string     `json:"prev"`
+}
+
+func toCursor(clockValue uint64, messageID string) string {
+	return fmt.Sprintf("%064d%s", clockValue, messageID)
+}
+
 // MessageByChatID returns all messages for a given chatID in descending order.
 // Ordering is accomplished using two concatenated values: ClockValue and ID.
 // These two values are also used to compose a cursor which is returned to the result.
-func (db sqlitePersistence) MessageByChatID(chatID string, currCursor string, limit int) ([]*Message, string, error) {
+func (db sqlitePersistence) MessageByChatID(criteria MessageCriteria) (*MessagePagination, error) {
+	tx, err := db.db.BeginTx(context.Background(), &sql.TxOptions{})
+	if err != nil {
+		return nil, err
+	}
+	defer func() {
+		if err == nil {
+			err = tx.Commit()
+			return
+		}
+		// don't shadow original error
+		_ = tx.Rollback()
+	}()
+
 	cursorWhere := ""
-	if currCursor != "" {
-		cursorWhere = "AND cursor <= ?"
+	if criteria.StartFromOldestUnread {
+		var messageID string
+		var clockValue uint64
+		row := tx.QueryRow(`SELECT id,clock_value FROM user_messages WHERE local_chat_id = ? AND seen = 0 ORDER BY clock_value ASC LIMIT 1`, criteria.ChatID)
+		switch err := row.Scan(&messageID, &clockValue); err {
+
+		case nil:
+			criteria.Cursor = toCursor(clockValue, messageID)
+		case sql.ErrNoRows:
+		default:
+			return nil, err
+		}
+
+	}
+
+	if criteria.Cursor != "" {
+		if criteria.Ascending {
+			cursorWhere = "AND cursor >= ?"
+		} else {
+			cursorWhere = "AND cursor <= ?"
+		}
 	}
 	allFields := db.tableUserMessagesLegacyAllFieldsJoin()
-	args := []interface{}{chatID}
-	if currCursor != "" {
-		args = append(args, currCursor)
+	args := []interface{}{criteria.ChatID}
+	if criteria.Cursor != "" {
+		args = append(args, criteria.Cursor)
+	}
+	var orderBy string
+	if criteria.Ascending {
+		orderBy = "ASC"
+	} else {
+		orderBy = "DESC"
 	}
 	// Build a new column `cursor` at the query time by having a fixed-sized clock value at the beginning
 	// concatenated with message ID. Results are sorted using this new column.
 	// This new column values can also be returned as a cursor for subsequent requests.
-	rows, err := db.db.Query(
+	rows, err := tx.Query(
 		fmt.Sprintf(`
 			SELECT
 				%s,
@@ -348,13 +396,13 @@ func (db sqlitePersistence) MessageByChatID(chatID string, currCursor string, li
 			m1.source = c.id
 			WHERE
 				m1.hide != 1 AND m1.local_chat_id = ? %s
-			ORDER BY cursor DESC
+			ORDER BY cursor %s
 			LIMIT ?
-		`, allFields, cursorWhere),
-		append(args, limit+1)..., // take one more to figure our whether a cursor should be returned
+		`, allFields, cursorWhere, orderBy),
+		append(args, criteria.Limit+1)..., // take one more to figure our whether a cursor should be returned
 	)
 	if err != nil {
-		return nil, "", err
+		return nil, err
 	}
 	defer rows.Close()
 
@@ -368,18 +416,30 @@ func (db sqlitePersistence) MessageByChatID(chatID string, currCursor string, li
 			cursor  string
 		)
 		if err := db.tableUserMessagesLegacyScanAllFields(rows, &message, &cursor); err != nil {
-			return nil, "", err
+			return nil, err
 		}
 		result = append(result, &message)
 		cursors = append(cursors, cursor)
 	}
 
-	var newCursor string
-	if len(result) > limit {
-		newCursor = cursors[limit]
-		result = result[:limit]
+	pagination := MessagePagination{
+		Messages: result,
 	}
-	return result, newCursor, nil
+	// If we are fetching in ascending order, we always set prev to the
+	// first message
+	if criteria.Ascending && len(cursors) != 0 {
+		pagination.Prev = cursors[0]
+	}
+
+	if len(result) > criteria.Limit {
+		if criteria.Ascending {
+			pagination.Next = cursors[criteria.Limit]
+		} else {
+			pagination.Prev = cursors[criteria.Limit]
+		}
+		pagination.Messages = result[:criteria.Limit]
+	}
+	return &pagination, nil
 }
 
 func (db sqlitePersistence) SaveMessagesLegacy(messages []*Message) (err error) {
