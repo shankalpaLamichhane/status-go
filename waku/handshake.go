@@ -57,9 +57,9 @@ func (o statusOptions) WithDefaults() statusOptions {
 	return o
 }
 
-var idxFieldKey = make(map[int]string)
-var keyFieldIdx = func() map[string]int {
-	result := make(map[string]int)
+var idxFieldKey = make(map[int]uint64)
+var keyFieldIdx = func() map[uint64]int {
+	result := make(map[uint64]int)
 	opts := statusOptions{}
 	v := reflect.ValueOf(opts)
 	for i := 0; i < v.NumField(); i++ {
@@ -72,7 +72,9 @@ var keyFieldIdx = func() map[string]int {
 		if rlpTag == "" {
 			continue
 		}
-		key := strings.Split(rlpTag, "=")[1]
+		keyString := strings.Split(rlpTag, "=")[1]
+		key, _ := strconv.ParseUint(keyString, 10, 64)
+
 		result[key] = i
 		idxFieldKey[i] = key
 	}
@@ -130,7 +132,7 @@ loop:
 		default:
 			return fmt.Errorf("expected an inner list: %v", err)
 		}
-		var key string
+		var key uint64
 		if err := s.Decode(&key); err != nil {
 			return fmt.Errorf("invalid key: %v", err)
 		}
@@ -143,12 +145,12 @@ loop:
 			// Read the rest of the list items and dump them.
 			_, err := s.Raw()
 			if err != nil {
-				return fmt.Errorf("failed to read the value of key %s: %v", key, err)
+				return fmt.Errorf("failed to read the value of key %d: %v", key, err)
 			}
 			continue
 		}
 		if err := s.Decode(v.Elem().Field(idx).Addr().Interface()); err != nil {
-			return fmt.Errorf("failed to decode an option %s: %v", key, err)
+			return fmt.Errorf("failed to decode an option %d: %v", key, err)
 		}
 		if err := s.ListEnd(); err != nil {
 			return err
