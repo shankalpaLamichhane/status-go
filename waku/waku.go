@@ -1570,21 +1570,27 @@ func (w *Waku) toStatusOptions() statusOptions {
 
 	rateLimits := w.RateLimits()
 	opts.RateLimits = &rateLimits
+	opts.RateLimitsLegacy = &rateLimits
 
 	lightNode := w.LightClientMode()
 	opts.LightNodeEnabled = &lightNode
+	opts.LightNodeEnabledLegacy = &lightNode
 
 	minPoW := w.MinPow()
 	opts.SetPoWRequirementFromF(minPoW)
+	opts.SetPoWRequirementFromFLegacy(minPoW)
 
 	confirmationsEnabled := w.ConfirmationsEnabled()
 	opts.ConfirmationsEnabled = &confirmationsEnabled
+	opts.ConfirmationsEnabledLegacy = &confirmationsEnabled
 
 	bloomFilterMode := w.BloomFilterMode()
 	if bloomFilterMode {
 		opts.BloomFilter = w.BloomFilter()
+		opts.BloomFilterLegacy = w.BloomFilter()
 	} else {
 		opts.TopicInterest = w.TopicInterest()
+		opts.TopicInterestLegacy = w.TopicInterest()
 	}
 
 	return opts

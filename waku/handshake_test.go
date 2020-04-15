@@ -15,16 +15,26 @@ func TestEncodeDecodeRLP(t *testing.T) {
 	confirmationsEnabled := true
 
 	opts := statusOptions{
-		PoWRequirement:       &pow,
-		BloomFilter:          TopicToBloom(TopicType{0xaa, 0xbb, 0xcc, 0xdd}),
-		LightNodeEnabled:     &lightNodeEnabled,
-		ConfirmationsEnabled: &confirmationsEnabled,
+		PoWRequirement:             &pow,
+		PoWRequirementLegacy:       &pow,
+		BloomFilter:                TopicToBloom(TopicType{0xaa, 0xbb, 0xcc, 0xdd}),
+		BloomFilterLegacy:          TopicToBloom(TopicType{0xaa, 0xbb, 0xcc, 0xdd}),
+		LightNodeEnabled:           &lightNodeEnabled,
+		LightNodeEnabledLegacy:     &lightNodeEnabled,
+		ConfirmationsEnabled:       &confirmationsEnabled,
+		ConfirmationsEnabledLegacy: &confirmationsEnabled,
 		RateLimits: &RateLimits{
 			IPLimits:     10,
 			PeerIDLimits: 5,
 			TopicLimits:  1,
 		},
-		TopicInterest: []TopicType{{0x01}, {0x02}, {0x03}, {0x04}},
+		RateLimitsLegacy: &RateLimits{
+			IPLimits:     10,
+			PeerIDLimits: 5,
+			TopicLimits:  1,
+		},
+		TopicInterest:       []TopicType{{0x01}, {0x02}, {0x03}, {0x04}},
+		TopicInterestLegacy: []TopicType{{0x01}, {0x02}, {0x03}, {0x04}},
 	}
 	data, err := rlp.EncodeToBytes(opts)
 	require.NoError(t, err)

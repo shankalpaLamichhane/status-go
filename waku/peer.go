@@ -155,6 +155,9 @@ func (p *Peer) setOptions(peerOptions statusOptions) error {
 	if err := peerOptions.Validate(); err != nil {
 		return fmt.Errorf("p [%x]: sent invalid options: %v", p.ID(), err)
 	}
+
+	peerOptions.HandleLegacyFields()
+
 	// Validate and save peer's PoW.
 	pow := peerOptions.PoWRequirementF()
 	if pow != nil {

@@ -6,6 +6,7 @@ import (
 	"io"
 	"math"
 	"reflect"
+	"strconv"
 	"strings"
 
 	"github.com/ethereum/go-ethereum/rlp"
@@ -20,12 +21,23 @@ var defaultMinPoW = math.Float64bits(0.001)
 // In the case of RLP, options should be serialized to an array of tuples
 // where the first item is a field name and the second is a RLP-serialized value.
 type statusOptions struct {
-	PoWRequirement       *uint64     `rlp:"key=0"` // RLP does not support float64 natively
-	BloomFilter          []byte      `rlp:"key=1"`
-	LightNodeEnabled     *bool       `rlp:"key=2"`
-	ConfirmationsEnabled *bool       `rlp:"key=3"`
-	RateLimits           *RateLimits `rlp:"key=4"`
-	TopicInterest        []TopicType `rlp:"key=5"`
+	PoWRequirement       *uint64 `rlp:"key=0"`  // RLP does not support float64 natively
+	PoWRequirementLegacy *uint64 `rlp:"key=48"` // RLP does not support float64 natively
+
+	BloomFilter       []byte `rlp:"key=1"`
+	BloomFilterLegacy []byte `rlp:"key=49"`
+
+	LightNodeEnabled       *bool `rlp:"key=2"`
+	LightNodeEnabledLegacy *bool `rlp:"key=50"`
+
+	ConfirmationsEnabled       *bool `rlp:"key=3"`
+	ConfirmationsEnabledLegacy *bool `rlp:"key=51"`
+
+	RateLimits       *RateLimits `rlp:"key=4"`
+	RateLimitsLegacy *RateLimits `rlp:"key=52"`
+
+	TopicInterest       []TopicType `rlp:"key=5"`
+	TopicInterestLegacy []TopicType `rlp:"key=53"`
 }
 
 // WithDefaults adds the default values for a given peer.
@@ -94,6 +106,11 @@ func (o *statusOptions) SetPoWRequirementFromF(val float64) {
 	o.PoWRequirement = &requirement
 }
 
+func (o *statusOptions) SetPoWRequirementFromFLegacy(val float64) {
+	requirement := math.Float64bits(val)
+	o.PoWRequirementLegacy = &requirement
+}
+
 func (o statusOptions) EncodeRLP(w io.Writer) error {
 	v := reflect.ValueOf(o)
 	var optionsList []interface{}
@@ -160,9 +177,32 @@ loop:
 	return s.ListEnd()
 }
 
+func (o *statusOptions) HandleLegacyFields() {
+	if o.PoWRequirement == nil && o.PoWRequirementLegacy != nil {
+		o.PoWRequirementLegacy = o.PoWRequirementLegacy
+
+	}
+
+	if o.BloomFilter == nil && o.BloomFilterLegacy != nil {
+		o.BloomFilter = o.BloomFilterLegacy
+	}
+
+	if o.LightNodeEnabled == nil && o.LightNodeEnabledLegacy != nil {
+		o.LightNodeEnabled = o.LightNodeEnabledLegacy
+	}
+
+	if o.RateLimits == nil && o.RateLimitsLegacy != nil {
+		o.RateLimits = o.RateLimitsLegacy
+	}
+
+	if o.TopicInterest == nil && o.TopicInterestLegacy != nil {
+		o.TopicInterest = o.TopicInterestLegacy
+	}
+}
+
 func (o statusOptions) Validate() error {
-	if len(o.TopicInterest) > 1000 {
-		return errors.New("topic interest is limited by 1000 items")
+	if len(o.TopicInterest) > 10000 || len(o.TopicInterest) > 10000 {
+		return errors.New("topic interest is limited by 10000 items")
 	}
 	return nil
 }
