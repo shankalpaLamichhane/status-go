@@ -300,7 +300,7 @@ func (g *Generator) logAccounts() {
 
 func (g *Generator) store(acc *account, password string) (AccountInfo, error) {
 	g.logAccounts()
-	g.log(fmt.Sprintf("store %s", acc.toAccountInfo().Address))
+	g.log(fmt.Sprintf("storing %s", acc.toAccountInfo().Address))
 	if acc.extendedKey != nil {
 		if _, _, err := g.am.ImportSingleExtendedKey(acc.extendedKey, password); err != nil {
 			g.log(fmt.Sprintf("store error single key %v", err))
@@ -314,6 +314,8 @@ func (g *Generator) store(acc *account, password string) (AccountInfo, error) {
 	}
 
 	g.Reset()
+	g.log(fmt.Sprintf("store: no error;"))
+	g.logAccounts()
 
 	return acc.toAccountInfo(), nil
 }
