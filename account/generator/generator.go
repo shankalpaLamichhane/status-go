@@ -56,7 +56,7 @@ func New(am AccountManager) *Generator {
 
 func (g *Generator) log(s string) {
 	logger.Debug(s)
-	fmt.Printf("MultiAccount %s\n", s)
+	fmt.Printf("** MultiAccount %s\n", s)
 }
 
 func (g *Generator) Generate(mnemonicPhraseLength int, n int, bip39Passphrase string) ([]GeneratedAccountInfo, error) {
