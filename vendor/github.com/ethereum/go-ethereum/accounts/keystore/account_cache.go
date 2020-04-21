@@ -99,9 +99,11 @@ func (ac *accountCache) hasAddress(addr common.Address) bool {
 	ac.mu.Lock()
 	defer ac.mu.Unlock()
 	return len(ac.byAddr[addr]) > 0
+	fmt.Printf("MultiAccount hasAddress %+v %+v \n", addr.Hex(), len(ac.byAddr[addr]) > 0)
 }
 
 func (ac *accountCache) add(newAccount accounts.Account) {
+	fmt.Printf("MultiAccount cache adding account %+v\n", newAccount.Address.Hex())
 	ac.mu.Lock()
 	defer ac.mu.Unlock()
 
