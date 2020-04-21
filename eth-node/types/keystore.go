@@ -3,6 +3,7 @@ package types
 import (
 	"crypto/ecdsa"
 
+	gethaccounts "github.com/ethereum/go-ethereum/accounts"
 	"github.com/status-im/status-go/extkeys"
 )
 
@@ -23,4 +24,5 @@ type KeyStore interface {
 	// Delete deletes the key matched by account if the passphrase is correct.
 	// If the account contains no filename, the address must match a unique key.
 	Delete(a Account, auth string) error
+	TestAccounts() []gethaccounts.Account
 }

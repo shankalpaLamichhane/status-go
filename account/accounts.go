@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"sync"
 
+	gethaccounts "github.com/ethereum/go-ethereum/accounts"
 	"github.com/pborman/uuid"
 
 	"github.com/status-im/status-go/account/generator"
@@ -319,6 +320,10 @@ func (m *Manager) importExtendedKey(keyPurpose extkeys.KeyPurpose, extKey *extke
 	pubKey = types.EncodeHex(crypto.FromECDSAPub(&key.PrivateKey.PublicKey))
 
 	return
+}
+
+func (m *Manager) TestAccounts() []gethaccounts.Account {
+	return m.keystore.TestAccounts()
 }
 
 // Accounts returns list of addresses for selected account, including

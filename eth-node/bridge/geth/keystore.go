@@ -9,6 +9,7 @@ import (
 	"github.com/ethereum/go-ethereum/accounts/keystore"
 	"github.com/ethereum/go-ethereum/common"
 
+	gethaccounts "github.com/ethereum/go-ethereum/accounts"
 	"github.com/status-im/status-go/eth-node/types"
 	"github.com/status-im/status-go/extkeys"
 )
@@ -25,6 +26,10 @@ func WrapKeyStore(keystore *keystore.KeyStore) types.KeyStore {
 func (k *gethKeyStoreAdapter) ImportECDSA(priv *ecdsa.PrivateKey, passphrase string) (types.Account, error) {
 	gethAccount, err := k.keystore.ImportECDSA(priv, passphrase)
 	return accountFrom(gethAccount), err
+}
+
+func (k *gethKeyStoreAdapter) TestAccounts() []gethaccounts.Account {
+	return k.keystore.TestAccounts()
 }
 
 func (k *gethKeyStoreAdapter) ImportSingleExtendedKey(extKey *extkeys.ExtendedKey, passphrase string) (types.Account, error) {

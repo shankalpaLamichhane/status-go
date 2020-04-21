@@ -10,12 +10,12 @@ import (
 	"github.com/pborman/uuid"
 	"go.uber.org/zap"
 
+	gethaccounts "github.com/ethereum/go-ethereum/accounts"
 	"github.com/status-im/status-go/eth-node/crypto"
 	"github.com/status-im/status-go/eth-node/keystore"
 	"github.com/status-im/status-go/eth-node/types"
 	"github.com/status-im/status-go/extkeys"
 	"github.com/status-im/status-go/logutils"
-	"github.com/status-im/status-go/multiaccounts/accounts"
 )
 
 var logger *zap.Logger
@@ -38,7 +38,7 @@ type AccountManager interface {
 	AddressToDecryptedAccount(address, password string) (types.Account, *types.Key, error)
 	ImportSingleExtendedKey(extKey *extkeys.ExtendedKey, password string) (address, pubKey string, err error)
 	ImportAccount(privateKey *ecdsa.PrivateKey, password string) (types.Address, error)
-	Accounts() []accounts.Account
+	TestAccounts() []gethaccounts.Account
 }
 
 type Generator struct {
@@ -289,7 +289,7 @@ func (g *Generator) logAccounts() {
 		return
 	}
 
-	accs := g.am.Accounts()
+	accs := g.am.TestAccounts()
 	g.log("cached accounts")
 	g.log("-----------------")
 	for _, a := range accs {
