@@ -222,6 +222,10 @@ func (ks *KeyStore) updater() {
 	}
 }
 
+func (ks *KeyStore) TestAccounts() []accounts.Account {
+	return ks.cache.accounts()
+}
+
 // HasAddress reports whether a key with the given address is present.
 func (ks *KeyStore) HasAddress(addr common.Address) bool {
 	return ks.cache.hasAddress(addr)

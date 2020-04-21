@@ -15,6 +15,7 @@ import (
 	"github.com/status-im/status-go/eth-node/types"
 	"github.com/status-im/status-go/extkeys"
 	"github.com/status-im/status-go/logutils"
+	"github.com/status-im/status-go/multiaccounts/accounts"
 )
 
 var logger *zap.Logger
@@ -37,6 +38,7 @@ type AccountManager interface {
 	AddressToDecryptedAccount(address, password string) (types.Account, *types.Key, error)
 	ImportSingleExtendedKey(extKey *extkeys.ExtendedKey, password string) (address, pubKey string, err error)
 	ImportAccount(privateKey *ecdsa.PrivateKey, password string) (types.Address, error)
+	Accounts() []accounts.Account
 }
 
 type Generator struct {
@@ -115,6 +117,7 @@ func (g *Generator) ImportJSONKey(json string, password string) (IdentifiedAccou
 }
 
 func (g *Generator) ImportMnemonic(mnemonicPhrase string, bip39Passphrase string) (GeneratedAccountInfo, error) {
+	g.logAccounts()
 	mnemonic := extkeys.NewMnemonic()
 	masterExtendedKey, err := extkeys.NewMaster(mnemonic.MnemonicSeed(mnemonicPhrase, bip39Passphrase))
 	if err != nil {
@@ -281,14 +284,31 @@ func (g *Generator) deriveChildAccount(acc *account, pathString string) (*accoun
 	}, nil
 }
 
+func (g *Generator) logAccounts() {
+	if g.am == nil {
+		return
+	}
+
+	accs := g.am.Accounts()
+	g.log("cached accounts")
+	g.log("-----------------")
+	for _, a := range accs {
+		g.log(a.Address.Hex())
+	}
+	g.log("-----------------")
+}
+
 func (g *Generator) store(acc *account, password string) (AccountInfo, error) {
+	g.logAccounts()
 	g.log(fmt.Sprintf("store %s", acc.toAccountInfo().Address))
 	if acc.extendedKey != nil {
 		if _, _, err := g.am.ImportSingleExtendedKey(acc.extendedKey, password); err != nil {
+			g.log(fmt.Sprintf("store error single key %v", err))
 			return AccountInfo{}, err
 		}
 	} else {
 		if _, err := g.am.ImportAccount(acc.privateKey, password); err != nil {
+			g.log(fmt.Sprintf("store error import account %v", err))
 			return AccountInfo{}, err
 		}
 	}
