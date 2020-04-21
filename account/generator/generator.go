@@ -201,17 +201,20 @@ func (g *Generator) StoreAccount(accountID string, password string) (AccountInfo
 }
 
 func (g *Generator) StoreDerivedAccounts(accountID string, password string, pathStrings []string) (map[string]AccountInfo, error) {
+	g.log(fmt.Sprintf("************* StoreDerivedAccounts %+v", pathStrings))
 	if g.am == nil {
 		return nil, ErrAccountManagerNotSet
 	}
 
 	acc, err := g.findAccount(accountID)
 	if err != nil {
+		g.log(fmt.Sprintf("************* error finding account %v", err))
 		return nil, err
 	}
 
 	pathAccounts, err := g.deriveChildAccounts(acc, pathStrings)
 	if err != nil {
+		g.log(fmt.Sprintf("************* error deriving paths %v", err))
 		return nil, err
 	}
 
@@ -220,12 +223,14 @@ func (g *Generator) StoreDerivedAccounts(accountID string, password string, path
 	for pathString, childAccount := range pathAccounts {
 		info, err := g.store(childAccount, password)
 		if err != nil {
+			g.log(fmt.Sprintf("************* error storing %v %+v", info.Address, err))
 			return nil, err
 		}
 
 		pathAccountsInfo[pathString] = info
 	}
 
+	g.log("***** StoreDerivedAccounts NO ERRORS")
 	return pathAccountsInfo, nil
 }
 
