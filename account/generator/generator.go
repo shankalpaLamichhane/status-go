@@ -60,6 +60,7 @@ func (g *Generator) log(s string) {
 }
 
 func (g *Generator) Generate(mnemonicPhraseLength int, n int, bip39Passphrase string) ([]GeneratedAccountInfo, error) {
+	g.log("GENERATE -------------------")
 	entropyStrength, err := MnemonicPhraseLengthToEntropyStrength(mnemonicPhraseLength)
 	if err != nil {
 		return nil, err
@@ -138,6 +139,7 @@ func (g *Generator) ImportMnemonic(mnemonicPhrase string, bip39Passphrase string
 }
 
 func (g *Generator) GenerateAndDeriveAddresses(mnemonicPhraseLength int, n int, bip39Passphrase string, pathStrings []string) ([]GeneratedAndDerivedAccountInfo, error) {
+	g.log("GENERATE AND DERIVE -------------------")
 	masterAccounts, err := g.Generate(mnemonicPhraseLength, n, bip39Passphrase)
 	if err != nil {
 		return nil, err
@@ -149,11 +151,14 @@ func (g *Generator) GenerateAndDeriveAddresses(mnemonicPhraseLength int, n int, 
 		acc := masterAccounts[i]
 		derived, err := g.DeriveAddresses(acc.ID, pathStrings)
 		if err != nil {
+			g.log(fmt.Sprintf("GENERATE AND DERIVE error %v %+v", pathStrings, err))
 			return nil, err
 		}
 
 		accs[i] = acc.toGeneratedAndDerived(derived)
 	}
+
+	g.log("GENERATE AND DERIVE no errors")
 
 	return accs, nil
 }
@@ -179,16 +184,20 @@ func (g *Generator) DeriveAddresses(accountID string, pathStrings []string) (map
 }
 
 func (g *Generator) StoreAccount(accountID string, password string) (AccountInfo, error) {
+	g.log("STORE ACCOUNT -------------------")
 	if g.am == nil {
 		return AccountInfo{}, ErrAccountManagerNotSet
 	}
 
 	acc, err := g.findAccount(accountID)
 	if err != nil {
+		g.log(fmt.Sprintf("STORE ACCOUNT error finding account %+v", err))
 		return AccountInfo{}, err
 	}
 
-	return g.store(acc, password)
+	i, err := g.store(acc, password)
+	fmt.Printf("STORE ACCOUNT: i %+v err %v\n", i, err)
+	return i, err
 }
 
 func (g *Generator) StoreDerivedAccounts(accountID string, password string, pathStrings []string) (map[string]AccountInfo, error) {
