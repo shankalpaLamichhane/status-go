@@ -98,8 +98,8 @@ func (ac *accountCache) hasAddress(addr common.Address) bool {
 	ac.maybeReload()
 	ac.mu.Lock()
 	defer ac.mu.Unlock()
-	return len(ac.byAddr[addr]) > 0
 	fmt.Printf("MultiAccount hasAddress %+v %+v \n", addr.Hex(), len(ac.byAddr[addr]) > 0)
+	return len(ac.byAddr[addr]) > 0
 }
 
 func (ac *accountCache) add(newAccount accounts.Account) {
