@@ -8,12 +8,21 @@ import (
 	"sync"
 
 	"github.com/pborman/uuid"
+	"go.uber.org/zap"
 
 	"github.com/status-im/status-go/eth-node/crypto"
 	"github.com/status-im/status-go/eth-node/keystore"
 	"github.com/status-im/status-go/eth-node/types"
 	"github.com/status-im/status-go/extkeys"
+	"github.com/status-im/status-go/logutils"
 )
+
+var logger *zap.Logger
+
+func init() {
+	logger = logutils.ZapLogger()
+	logger = logger.With(zap.Namespace("MultiAccount"))
+}
 
 var (
 	// ErrAccountNotFoundByID is returned when the selected account doesn't exist in memory.
@@ -41,6 +50,11 @@ func New(am AccountManager) *Generator {
 		am:       am,
 		accounts: make(map[string]*account),
 	}
+}
+
+func (g *Generator) log(s string) {
+	logger.Debug(s)
+	fmt.Printf("MultiAccount %s\n", s)
 }
 
 func (g *Generator) Generate(mnemonicPhraseLength int, n int, bip39Passphrase string) ([]GeneratedAccountInfo, error) {
@@ -114,7 +128,10 @@ func (g *Generator) ImportMnemonic(mnemonicPhrase string, bip39Passphrase string
 
 	id := g.addAccount(acc)
 
-	return acc.toGeneratedAccountInfo(id, mnemonicPhrase), nil
+	info := acc.toGeneratedAccountInfo(id, mnemonicPhrase)
+	g.log(fmt.Sprintf("import mnemonic %s", info.Address))
+
+	return info, nil
 }
 
 func (g *Generator) GenerateAndDeriveAddresses(mnemonicPhraseLength int, n int, bip39Passphrase string, pathStrings []string) ([]GeneratedAndDerivedAccountInfo, error) {
@@ -265,6 +282,7 @@ func (g *Generator) deriveChildAccount(acc *account, pathString string) (*accoun
 }
 
 func (g *Generator) store(acc *account, password string) (AccountInfo, error) {
+	g.log(fmt.Sprintf("store %s", acc.toAccountInfo().Address))
 	if acc.extendedKey != nil {
 		if _, _, err := g.am.ImportSingleExtendedKey(acc.extendedKey, password); err != nil {
 			return AccountInfo{}, err
