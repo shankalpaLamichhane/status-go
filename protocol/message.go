@@ -239,19 +239,11 @@ func (m *Message) parseImage() error {
 	encBuf := make([]byte, maxEncLen)
 
 	e64.Encode(encBuf, payload)
-	var mime string
 
-	switch image.Type {
-	case protobuf.ImageMessage_PNG:
-		mime = "png"
-	case protobuf.ImageMessage_JPEG:
-		mime = "jpeg"
-	case protobuf.ImageMessage_WEBP:
-		mime = "webp"
-	case protobuf.ImageMessage_GIF:
-		mime = "gif"
-	default:
-		return errors.New("image format not supported")
+	mime, err := getImageMessageMIME(image)
+
+	if err != nil {
+		return err
 	}
 
 	m.Base64Image = fmt.Sprintf("data:image/%s;base64,%s", mime, encBuf)
@@ -271,4 +263,18 @@ func (m *Message) PrepareContent() error {
 	m.LineCount = strings.Count(m.Text, "\n")
 	m.RTL = isRTL(m.Text)
 	return m.parseImage()
+}
+
+func getImageMessageMIME(i *protobuf.ImageMessage) (string, error) {
+	switch i.Type {
+	case protobuf.ImageMessage_PNG:
+		return "png", nil
+	case protobuf.ImageMessage_JPEG:
+		return "jpeg", nil
+	case protobuf.ImageMessage_WEBP:
+		return "webp", nil
+	case protobuf.ImageMessage_GIF:
+		return "gif", nil
+	}
+	return "", errors.New("image format not supported")
 }
