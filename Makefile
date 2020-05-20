@@ -121,7 +121,7 @@ statusgo-library-windows: ##@cross-compile Build status-go as static library for
 	CGO_ENABLED="1" GOOS="windows" CC="/usr/bin/x86_64-w64-mingw32-gcc" \
 	CGO_LDFLAGS="-lmingw32 -L/usr/x86_64-w64-mingw32/lib -lSDL2main -lSDL2" \
 	CGO_CFLAGS="-I/usr/x86_64-w64-mingw32/include/SDL2 -D_REENTRANT" \
-	GOARCH=amd64 CC=x86_64-w64-mingw32-gcc go build -buildmode=c-archive -o $(GOBIN)/libstatus.dll.a $(BUILD_FLAGS) ./lib
+	GOARCH=amd64 CC=x86_64-w64-mingw32-gcc go build -buildmode=c-archive -o $(GOBIN)/libstatus.lib $(BUILD_FLAGS) ./lib
 	@echo "Static library built:"
 	@ls -la $(GOBIN)/libstatus.*
 
