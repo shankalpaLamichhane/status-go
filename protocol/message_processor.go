@@ -234,6 +234,7 @@ func (p *messageProcessor) SendPublic(
 		return nil, errors.Wrap(err, "failed to wrap message")
 	}
 
+	p.logger.Info("MESSAGE SIZE", zap.Int("SIZE", len(wrappedMessage)))
 	newMessage = &types.NewMessage{
 		TTL:       whisperTTL,
 		Payload:   wrappedMessage,
@@ -393,11 +394,13 @@ func (p *messageProcessor) sendDataSync(ctx context.Context, publicKey *ecdsa.Pu
 
 // sendMessageSpec analyses the spec properties and selects a proper transport method.
 func (p *messageProcessor) sendMessageSpec(ctx context.Context, publicKey *ecdsa.PublicKey, messageSpec *encryption.ProtocolMessageSpec) ([]byte, *types.NewMessage, error) {
+
 	newMessage, err := messageSpecToWhisper(messageSpec)
 	if err != nil {
 		return nil, nil, err
 	}
 
+	p.logger.Info("MESSAGE SIZE", zap.Int("SIZE", len(newMessage.Payload)))
 	logger := p.logger.With(zap.String("site", "sendMessageSpec"))
 
 	var hash []byte
