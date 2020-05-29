@@ -188,6 +188,7 @@ func (b *GethStatusBackend) ensureAppDBOpened(account multiaccounts.Account, pas
 		return errors.New("root datadir wasn't provided")
 	}
 	path := filepath.Join(b.rootDataDir, fmt.Sprintf("app-%x.sql", account.KeyUID))
+	b.log.Info("PASSWORD", "pass", password)
 	b.appDB, err = appdatabase.InitializeDB(path, password)
 	if err != nil {
 		return err
