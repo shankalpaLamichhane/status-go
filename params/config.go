@@ -296,6 +296,10 @@ type NodeConfig struct {
 	// KeyStoreDir is the file system folder that contains private keys.
 	KeyStoreDir string `validate:"required"`
 
+	// OldKeyStoreDir is the file system folder that contained private keys.
+	// It it used for KeyStoreDir migration.
+	OldKeyStoreDir string
+
 	// NodeKey is the hex-encoded node ID (private key). Should be a valid secp256k1 private key that will be used for both
 	// remote peer identification as well as network traffic encryption.
 	NodeKey string

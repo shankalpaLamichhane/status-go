@@ -26,13 +26,15 @@ type MultiAccountDeriveAddressesParams struct {
 // MultiAccountStoreDerivedAccountsParams are the params sent to MultiAccountStoreDerivedAccounts.
 type MultiAccountStoreDerivedAccountsParams struct {
 	MultiAccountDeriveAddressesParams
-	Password string `json:"password"`
+	Password    string `json:"password"`
+	KeyStoreDir string `json:"keyStoreDir"`
 }
 
 // MultiAccountStoreAccountParams are the params sent to MultiAccountStoreAccount.
 type MultiAccountStoreAccountParams struct {
-	AccountID string `json:"accountID"`
-	Password  string `json:"password"`
+	AccountID   string `json:"accountID"`
+	Password    string `json:"password"`
+	KeyStoreDir string `json:"keyStoreDir"`
 }
 
 // MultiAccountImportPrivateKeyParams are the params sent to MultiAccountImportPrivateKey.
@@ -123,6 +125,11 @@ func MultiAccountStoreDerivedAccounts(paramsJSON string) string {
 		return makeJSONResponse(err)
 	}
 
+	err := statusBackend.AccountManager().InitKeystore(p.KeyStoreDir)
+	if err != nil {
+		return makeJSONResponse(err)
+	}
+
 	resp, err := statusBackend.AccountManager().AccountsGenerator().StoreDerivedAccounts(p.AccountID, p.Password, p.Paths)
 	if err != nil {
 		return makeJSONResponse(err)
@@ -183,6 +190,11 @@ func MultiAccountStoreAccount(paramsJSON string) string {
 	var p MultiAccountStoreAccountParams
 
 	if err := json.Unmarshal([]byte(paramsJSON), &p); err != nil {
+		return makeJSONResponse(err)
+	}
+
+	err := statusBackend.AccountManager().InitKeystore(p.KeyStoreDir)
+	if err != nil {
 		return makeJSONResponse(err)
 	}
 
